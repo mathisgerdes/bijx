@@ -12,3 +12,7 @@ The ODE must be defined in terms of a function `vector_field(t, y, args)`.
 Outputs must match the structure of `y0`.
 In the case of $GL(N)$, tangent vectors must be specified as lie algebra elements, i.e. as vectors at the identity element.
 Currently, transport is then defined via right multiplication (i.e. $AU$ if $A$ is in the lie algebra and $U$ is the group element).
+
+## Installation
+
+For development, install via `pip install -e .` from within the root directory of this repository.

@@ -13,7 +13,7 @@ def contract(*factors, trace=False, return_einsum_indices=False):
 
     indices = []
     for m, l in enumerate(leading):
-        indices.append([f'l{i}' for i in range(l)] + ['m{m}', f'm{m + 1}'])
+        indices.append([f'l{i}' for i in range(l)] + [f'm{m}', f'm{m + 1}'])
 
     if trace:
         indices[-1][-1] = 'm0'

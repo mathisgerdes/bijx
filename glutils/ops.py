@@ -30,3 +30,7 @@ def contract(*factors, trace=False, return_einsum_indices=False):
 def scalar_prod(a, b):
     """Compute scalar product between lie algebra elements a & b."""
     return jnp.einsum('...ij,...ij', a.conj(), b) / 2
+
+
+def adjoint(arr):
+    return arr.conj().swapaxes(-1, -2)

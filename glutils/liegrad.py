@@ -306,3 +306,31 @@ def path_grad2(fun, gens, us):
         partial(_jacfwd_unravel, ts), jac2)
 
     return out, jac, jac2
+
+
+def path_div(fun, gens, us):
+    """Compute divergence of a function.
+
+    The function is assumed to return a vector as components with respect to
+    generator basis.
+    """
+    curve = _local_curve_vec(fun, gens, us)
+
+    @jax.jit
+    @partial(jax.vmap, in_axes=(None, 0), out_axes=(0, -1))
+    def grad2_fn(ts, vec):
+        out, tangents = jax.jvp(
+            (lambda ts: jnp.sum(vec * curve(ts))),
+            (ts,),
+            (vec,),
+        )
+        return out, tangents
+
+    ts = jax.tree_util.tree_map(
+        lambda u: np.zeros(u.shape[:-2] + (len(gens),)), us
+    )
+    ts_basis = _std_basis(ts)
+
+    out, tangents = grad2_fn(ts, ts_basis)
+
+    return out.reshape(-1, len(gens)), jnp.sum(tangents).real

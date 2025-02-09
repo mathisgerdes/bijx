@@ -1,0 +1,35 @@
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# packaging
+*.egg-info
+*.egg
+
+# C extensions
+*.so
+
+# venv
+/env/
+
+# IDE
+.idea/
+
+/data/
+outputs/
+/figs/
+
+.DS_Store
+
+slurm-*.out
+
+# VSCode
+.virtual_documents/
+.vscode/
+
+# Generated version file
+lfx/_version.py

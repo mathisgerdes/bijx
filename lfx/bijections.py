@@ -7,6 +7,8 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
+from .rk4ode import odeint_rk4
+
 
 class Const(nnx.Variable): pass
 
@@ -191,7 +193,77 @@ class ContFlowDiffrax(Bijection):
             adjoint=self.adjoint,
             max_steps=max_steps,
         )
+        return sol
+
+    def forward(self, x, log_density, **kwargs):
+        sol = self.solve_flow(x, log_density, **kwargs)
+        # TODO: might want to tree-map indexing x[0] instead of (x,) for the
+        # general case that x is not an array
         (x,), (log_density,) = sol.ys
+        return x, log_density
+
+    def reverse(self, x, log_density, **kwargs):
+        sol = self.solve_flow(x, log_density, t_start=self.t_end, t_end=self.t_start, dt=-self.dt, **kwargs)
+        (x,), (log_density,) = sol.ys
+        return x, log_density
+
+
+class ContFlowRK4(Bijection):
+    def __init__(
+            self,
+            # (t, x, **kwargs) -> dx/dt, d(log_density)/dt
+            vf: tp.Callable,
+            *,
+            t_start: float = 0,
+            t_end: float = 1,
+            dt: float = 1/20,
+        ):
+        self.vf = vf
+        self.t_start = t_start
+        self.t_end = t_end
+        self.dt = dt
+
+
+    def solve_flow(
+            self,
+            x,
+            log_density,
+            *,
+            # integration parameters
+            t_start=None,
+            t_end=None,
+            dt=None,
+            # arguments to vector field
+            **kwargs,
+        ):
+        if t_start is None:
+            t_start = self.t_start
+        if t_end is None:
+            t_end = self.t_end
+        if dt is None:
+            dt = self.dt
+
+        # odeint_rk4 only supports positive step sizes
+        dt = np.abs(dt)
+        delta_t = np.abs(t_end - t_start)
+        negative = t_start > t_end
+
+        def vf(t, state, args):
+            if negative:
+                dx, dd = self.vf(t_start - t, state[0], **args)
+                return -dx, -dd
+            else:
+                return self.vf(t_start + t, state[0], **args)
+
+        y0 = (x, log_density)
+        x, log_density = odeint_rk4(
+            vf,
+            y0,
+            delta_t,
+            kwargs,
+            step_size=dt,
+            start_time=0.0,
+        )
         return x, log_density
 
     def forward(self, x, log_density, **kwargs):

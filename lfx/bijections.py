@@ -10,6 +10,10 @@ from flax import nnx
 
 class Const(nnx.Variable): pass
 
+# filter constants (above) and things wrapped in Frozen (defined below)
+filter_frozen = nnx.Any(Const, nnx.PathContains('frozen'))
+
+
 class Bijection(nnx.Module):
     def forward(self, x, log_density, **kwargs):
         return x, log_density
@@ -127,4 +131,71 @@ class Shift(Bijection):
         return x - self.shift, log_density
 
 
-filter_frozen = nnx.Any(Const, nnx.PathContains('frozen'))
+# for convenience, common wrapper around vector field using diffrax
+
+class ContFlowDiffrax(Bijection):
+    def __init__(
+            self,
+            # (t, x, **kwargs) -> dx/dt, d(log_density)/dt
+            vf: tp.Callable,
+            *,
+            t_start: float = 0,
+            t_end: float = 1,
+            dt: float = 1/20,
+            solver: diffrax.AbstractSolver = diffrax.Tsit5(),
+            stepsize_controller: diffrax.AbstractStepSizeController = diffrax.ConstantStepSize(),
+            # switch to diffrax.BacksolveAdjoint() "adjoint sensitivity"; lower memory usage
+            adjoint: diffrax.AbstractAdjoint = diffrax.RecursiveCheckpointAdjoint(),
+        ):
+        self.vf = vf
+        self.t_start = t_start
+        self.t_end = t_end
+        self.dt = dt
+        self.solver = solver
+        self.stepsize_controller = stepsize_controller
+        self.adjoint = adjoint
+
+    def solve_flow(
+            self,
+            x,
+            log_density,
+            *,
+            # integration parameters
+            t_start=None,
+            t_end=None,
+            dt=None,
+            saveat: diffrax.SaveAt | None = diffrax.SaveAt(t1=True),
+            max_steps: int | None = 4096,
+            # arguments to vector field
+            **kwargs,
+        ):
+        if t_start is None:
+            t_start = self.t_start
+        if t_end is None:
+            t_end = self.t_end
+        if dt is None:
+            dt = self.dt
+
+        term = diffrax.ODETerm(lambda t, state, args: self.vf(t, state[0], **args))
+        y0 = (x, log_density)
+        sol = diffrax.diffeqsolve(
+            term,
+            self.solver,
+            t0=t_start,
+            t1=t_end,
+            dt0=dt,
+            y0=y0,
+            args=kwargs,
+            saveat=saveat,
+            stepsize_controller=self.stepsize_controller,
+            adjoint=self.adjoint,
+            max_steps=max_steps,
+        )
+        (x,), (log_density,) = sol.ys
+        return x, log_density
+
+    def forward(self, x, log_density, **kwargs):
+        return self.solve_flow(x, log_density, **kwargs)
+
+    def reverse(self, x, log_density, **kwargs):
+        return self.solve_flow(x, log_density, t_start=self.t_end, t_end=self.t_start, dt=-self.dt, **kwargs)

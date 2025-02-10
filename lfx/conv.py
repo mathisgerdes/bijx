@@ -278,7 +278,7 @@ def fold_kernel(
     return w_raw / count
 
 
-class SymConv(nnx.Module):
+class ConvSym(nnx.Module):
     """Convolution Module wrapping ``lax.conv_general_dilated``.
 
     Args:

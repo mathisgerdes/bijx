@@ -1,5 +1,6 @@
 import typing as tp
 
+import diffrax
 import flax.typing as ftp
 import jax
 import jax.numpy as jnp

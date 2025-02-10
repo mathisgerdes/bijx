@@ -22,8 +22,9 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-    "jax>=0.3.25",
-    "flax>=0.6.1",
+    "jax>=0.5.0",
+    "flax>=0.10.0",
+    "diffrax>=0.6.0",
 ]
 
 [project.optional-dependencies]

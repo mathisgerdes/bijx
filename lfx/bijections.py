@@ -133,8 +133,6 @@ class Shift(Bijection):
         return x - self.shift, log_density
 
 
-# for convenience, common wrapper around vector field using diffrax
-
 class ContFlowDiffrax(Bijection):
     def __init__(
             self,

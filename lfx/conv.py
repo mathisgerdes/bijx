@@ -208,7 +208,7 @@ def unfold_kernel(
 
 def pad_kernel_weights(
         kernel: jnp.ndarray,
-        new_shape: tp.Union[int, tuple[int, ...]]) -> jnp.ndarray:
+        new_shape: int | tuple[int, ...]) -> jnp.ndarray:
     """Increase the size of conv kernel by padding with zeros.
 
     The non-trivial part comes from dimensions with even length.
@@ -325,15 +325,15 @@ class ConvSym(nnx.Module):
         out_features: int,
         kernel_size: int | tp.Sequence[int],
         orbit_function: tp.Callable | None = kernel_d4,
-        strides: tp.Union[None, int, tp.Sequence[int]] = 1,
+        strides: int | tp.Sequence[int] = 1,
         *,
         padding: ftp.PaddingLike = 'CIRCULAR',
-        input_dilation: tp.Union[None, int, tp.Sequence[int]] = 1,
-        kernel_dilation: tp.Union[None, int, tp.Sequence[int]] = 1,
+        input_dilation: int | tp.Sequence[int] = 1,
+        kernel_dilation: int | tp.Sequence[int] = 1,
         feature_group_count: int = 1,
         use_bias: bool = True,
-        mask: tp.Optional[jax.Array] = None,
-        dtype: tp.Optional[ftp.Dtype] = None,
+        mask: jax.Array | None = None,
+        dtype: ftp.Dtype | None = None,
         param_dtype: ftp.Dtype = jnp.float32,
         precision: ftp.PrecisionLike = None,
         kernel_init: ftp.Initializer = nnx.nn.linear.default_kernel_init,

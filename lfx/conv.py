@@ -7,6 +7,8 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
+from .bijections import Const
+
 
 def conv_indices(shape: tuple[int, ...], return_flat=True, center=True):
     """Generate index matrix for translation invariant layer (conv).
@@ -41,7 +43,7 @@ def _lattice_distances(shape: tuple[int, ...]):
         distance to the origin squared. The origin is
         at L//2 in each dimension of length L.
     """
-    coords = [np.arange(-(s - 1) // 2, (s + 1) // 2) for s in shape]
+    coords = [np.arange(-((s - 1) // 2), 1 + s // 2) for s in shape]
     coords = np.meshgrid(*coords, indexing='ij')
     dist = sum(c ** 2 for c in coords)
     return dist
@@ -74,7 +76,7 @@ def unique_index_kernel(shape: tuple[int, ...]):
 
 def flip_lattice(lattice: jnp.ndarray, axis: int) -> jnp.ndarray:
     """Flip array along one axis."""
-    return np.roll(np.flip(lattice, axis), 1 - lattice.shape[axis] % 2, axis)
+    return np.roll(np.flip(lattice, axis), lattice.shape[axis] % 2 - 1, axis)
 
 
 def rot_lattice_90(lattice: jnp.ndarray, ax1: int, ax2: int) -> jnp.ndarray:
@@ -226,6 +228,7 @@ def pad_kernel_weights(
     Returns:
         Kernel with new shape.
     """
+    # TODO: check this was ported correctly
     shape = kernel.shape[:-2]
     if isinstance(new_shape, tuple):
         assert len(new_shape) == len(shape), \
@@ -234,7 +237,7 @@ def pad_kernel_weights(
         new_shape = (new_shape,) * len(shape)
 
     # in even dimensions, copy the 'wrap-around' indices (at the edge)
-    wraps = [(0, 1) if length % 2 == 0 else (0, 0) for length in shape]
+    wraps = [(1, 0) if length % 2 == 0 else (0, 0) for length in shape]
     kernel = np.pad(kernel, [*wraps, (0, 0), (0, 0)], 'wrap')
     _slice = np.index_exp[:]
     for dim, length in enumerate(shape):
@@ -242,7 +245,7 @@ def pad_kernel_weights(
             kernel[_slice * dim + ([0, -1],)] /= 2
 
     # add zeros to reach desired shape
-    padding = [((new - old + 1) // 2, (new - old) // 2)
+    padding = [((new - old) // 2, (new - old + 1) // 2)
                for new, old in zip(new_shape, kernel.shape[:-2])]
     w = np.pad(kernel, padding + [(0, 0)] * 2, 'constant', constant_values=0.)
     return w
@@ -352,10 +355,11 @@ class ConvSym(nnx.Module):
         )
 
         if orbit_function is not None:
-            orbit_count, self.orbits = orbit_function(kernel_size)
+            orbit_count, orbits = orbit_function(kernel_size)
+            self.orbits = Const(orbits)
             w_shape = (orbit_count, kernel_shape[-2], kernel_shape[-1])
         else:
-            self.orbits = None
+            self.orbits = Const(None)
             w_shape = (np.prod(kernel_shape[:-2]),
                        kernel_shape[-2], kernel_shape[-1])
 
@@ -368,7 +372,7 @@ class ConvSym(nnx.Module):
             bias_key = rngs.params()
             self.bias = nnx.Param(bias_init(bias_key, bias_shape, param_dtype))
         else:
-            self.bias = None
+            self.bias = nnx.Param(None)
 
         self.in_features = in_features
         self.out_features = out_features
@@ -391,7 +395,7 @@ class ConvSym(nnx.Module):
     @property
     def kernel(self) -> nnx.Param[jax.Array]:
         if self.orbits is not None:
-            kernel = self.kernel_params[self.orbits]
+            kernel = self.kernel_params[self.orbits.value]
         else:
             kernel = self.kernel_params.reshape(self.kernel_shape)
         return nnx.Param(kernel)

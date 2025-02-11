@@ -3,6 +3,7 @@ from functools import partial
 import flax
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 
 @jax.jit
@@ -39,7 +40,6 @@ def _none_or_tuple(x):
     return None if x is None else tuple(x)
 
 
-@flax.struct.dataclass
 class ShapeInfo:
     """
     Manages array shape information.
@@ -66,10 +66,8 @@ class ShapeInfo:
     space_dim: int | None = None
     channel_dim: int | None = None
 
-    @classmethod
-    def init(
-            cls,
-            *,
+    def __init__(
+            self,
             event_shape: tuple[int, ...] | None = None,
             space_shape: tuple[int, ...] | None = None,
             channel_shape: tuple[int, ...] | None = None,
@@ -108,27 +106,32 @@ class ShapeInfo:
             if space_dim is not None:
                 space_shape = event_shape[:space_dim]
             if channel_dim is not None:
-                channel_shape = event_shape[-channel_dim:]
+                channel_shape = () if channel_dim == 0 else event_shape[-channel_dim:]
 
-        return cls(
-            event_shape=event_shape,
-            space_shape=space_shape,
-            channel_shape=channel_shape,
-            event_dim=event_dim,
-            space_dim=space_dim,
-            channel_dim=channel_dim,
-        )
+        self.event_shape = event_shape
+        self.space_shape = space_shape
+        self.channel_shape = channel_shape
+        self.event_dim = event_dim
+        self.space_dim = space_dim
+        self.channel_dim = channel_dim
 
     def process_event(self, batched_shape: tuple[int, ...]):
         if self.event_dim is None:
             raise RuntimeError("event dimension is unknown; cannot process event")
+
+        if self.event_dim == 0:
+            return batched_shape, ShapeInfo(
+                event_shape=(),
+                space_shape=(),
+                channel_shape=(),
+            )
 
         batch_shape = batched_shape[:-self.event_dim]
         event_shape = batched_shape[-self.event_dim:]
         assert self.event_shape is None or self.event_shape == event_shape, \
             f"event shape mismatch: {self.event_shape=} != {event_shape=}"
 
-        return batch_shape, self.init(
+        return batch_shape, ShapeInfo(
             event_shape=event_shape,
             space_shape=self.space_shape,
             channel_shape=self.channel_shape,
@@ -148,3 +151,50 @@ class ShapeInfo:
     @property
     def space_axes(self) -> tuple[int, ...]:
         return tuple(range(-self.event_dim, -self.event_dim + self.space_dim))
+
+    @property
+    def event_size(self) -> int:
+        return np.prod(self.event_shape, dtype=int)
+
+    @property
+    def space_size(self) -> int:
+        return np.prod(self.space_shape, dtype=int)
+
+    @property
+    def channel_size(self) -> int:
+        return np.prod(self.channel_shape, dtype=int)
+
+    def tree_flatten(self):
+        """Defines how to break down into JAX-compatible components"""
+        children = ()  # No array leaves in this class
+        aux_data = (
+            self.event_shape,
+            self.space_shape,
+            self.channel_shape,
+            self.event_dim,
+            self.space_dim,
+            self.channel_dim
+        )
+        return children, aux_data
+
+    def __repr__(self):
+        attrs = [
+            f"event_shape={self.event_shape}",
+            f"space_shape={self.space_shape}",
+            f"channel_shape={self.channel_shape}",
+            f"event_dim={self.event_dim}",
+            f"space_dim={self.space_dim}",
+            f"channel_dim={self.channel_dim}"
+        ]
+        return f"ShapeInfo({', '.join(attrs)})"
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*aux_data)
+
+# Register as JAX pytree
+jax.tree_util.register_pytree_node(
+    ShapeInfo,
+    ShapeInfo.tree_flatten,
+    ShapeInfo.tree_unflatten
+)

@@ -37,7 +37,7 @@ class SpectrumScaling(Bijection):
         if isinstance(scaling, (jax.Array, np.ndarray)):
             scaling = Const(scaling)
         self.scaling = scaling
-        self.shape_info = ShapeInfo.init(space_shape=scaling.shape, channel_dim=channel_dim)
+        self.shape_info = ShapeInfo(space_shape=scaling.shape, channel_dim=channel_dim)
 
     @property
     def scaling_array(self):

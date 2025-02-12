@@ -208,9 +208,14 @@ def unfold_kernel(
     return kernel_params[orbits]
 
 
-def pad_kernel_weights(
+def resize_kernel_weights(
         kernel: jnp.ndarray,
-        new_shape: int | tuple[int, ...]) -> jnp.ndarray:
+        new_shape: int | tuple[int, ...],
+        *,
+        mode: str = 'constant',
+        constant_values: float = 0.,
+        **pad_args,
+    ) -> jnp.ndarray:
     """Increase the size of conv kernel by padding with zeros.
 
     The non-trivial part comes from dimensions with even length.
@@ -228,7 +233,6 @@ def pad_kernel_weights(
     Returns:
         Kernel with new shape.
     """
-    # TODO: check this was ported correctly
     shape = kernel.shape[:-2]
     if isinstance(new_shape, tuple):
         assert len(new_shape) == len(shape), \
@@ -237,18 +241,37 @@ def pad_kernel_weights(
         new_shape = (new_shape,) * len(shape)
 
     # in even dimensions, copy the 'wrap-around' indices (at the edge)
-    wraps = [(1, 0) if length % 2 == 0 else (0, 0) for length in shape]
+    wraps = [
+        (1, 0) if (old % 2 == 0) and new > old else (0, 0)
+        for new, old in zip(new_shape, shape)]
+
     kernel = np.pad(kernel, [*wraps, (0, 0), (0, 0)], 'wrap')
+
+    # divide copied values by two
     _slice = np.index_exp[:]
     for dim, length in enumerate(shape):
         if length % 2 == 0:
             kernel[_slice * dim + ([0, -1],)] /= 2
 
     # add zeros to reach desired shape
-    padding = [((new - old) // 2, (new - old + 1) // 2)
-               for new, old in zip(new_shape, kernel.shape[:-2])]
-    w = np.pad(kernel, padding + [(0, 0)] * 2, 'constant', constant_values=0.)
-    return w
+    padding = [
+        ((new - old - 1) // 2, (old % 2) + (new - old) // 2) if new > old else (0, 0)
+        for new, old in zip(new_shape, shape)
+    ]
+    w = np.pad(
+        kernel, padding + [(0, 0)] * 2, mode,
+        constant_values=constant_values,
+        **pad_args,
+    )
+
+    # crop
+    crop = ()
+    for new, old in zip(new_shape, shape):
+        if new >= old:
+            crop += np.index_exp[:]
+        else:
+            crop += np.index_exp[(old-new+(old%2))//2:-(old-new+(new%2))//2]
+    return w[crop]
 
 
 def fold_kernel(

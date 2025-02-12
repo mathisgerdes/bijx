@@ -18,4 +18,4 @@ pip install -e .
 ## Documentation
 
 - [Tutorial: Basics](tutorial-basics.ipynb)
-- [Tutorial: Free Theory](tutorial-phi4.ipynb)
+- [Tutorial: Scalar Theory](tutorial-phi4.ipynb)

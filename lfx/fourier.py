@@ -1,3 +1,5 @@
+from itertools import product
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -62,3 +64,31 @@ class SpectrumScaling(Bijection):
     def reverse(self, x, log_density):
         log_density = log_density - jnp.sum(jnp.log(self.scaling_array))
         return self.scale(x, reverse=True), log_density
+
+
+def get_fourier_masks(real_shape):
+    """Get masks for independent d.o.f. of real FFT transform."""
+    # rfft reduces last dimension
+    rfft_shape = real_shape[:-1] + (real_shape[-1] // 2 + 1,)
+
+    real_mask = np.ones(rfft_shape, dtype=bool)
+    imag_mask = np.ones(rfft_shape, dtype=bool)
+
+    # right edge only if dimension is even length
+    edges = [[0] + ([s//2] if s % 2 == 0 else [])
+             for s in real_shape]
+
+    cp_start = [s // 2 + 1 for s in real_shape[:-1]]
+
+    # zero because reality condition makes value real
+    for index in product(*edges):
+        imag_mask[index] = False
+
+    # zero because degrees of freedom are duplicated
+    for i, s in enumerate(cp_start):
+        for e1 in product(*edges[:i]):
+            for e2 in product(*edges[i+1:]):
+                real_mask[e1 + (np.s_[s:],) + e2] = False
+                imag_mask[e1 + (np.s_[s:],) + e2] = False
+
+    return real_mask, imag_mask

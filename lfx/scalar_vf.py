@@ -133,6 +133,16 @@ class ConcatFeatures(NonlinearFeatures):
         return jnp.concatenate([f.apply_feature_map(phi_lin) for f in self.features], axis=-1)
 
 
+def _contract_with_emb(par, t_emb):
+    if par.value is None:
+        return None
+    return rearrange(
+        par.value,
+        '... (c t) -> ... c t',
+        t=t_emb.shape[-1]
+    ) @ t_emb
+
+
 class Phi4CNF(nnx.Module):
     def __init__(
             self,
@@ -157,23 +167,14 @@ class Phi4CNF(nnx.Module):
         t_emb = self.time_kernel(t)
 
         # contract time embedding with conv kernel & bias
-        conv_graph, conv_params, conv_const = nnx.split(self.conv, nnx.Param, nnx.Variable)
-        conv_params['kernel_params'] = rearrange(
-            conv_params['kernel_params'].value,
-            '... (c t) -> ... c t',
-            c=shape_info.channel_size,
-            t=self.time_kernel.feature_count
-        ) @ t_emb
+        conv_graph, conv_params = nnx.split(self.conv)
 
-        if conv_params['bias'].value is not None:
-            conv_params['bias'] = rearrange(
-                conv_params['bias'].value,
-                '... (c t) -> ... c t',
-                c=shape_info.channel_size,
-                t=self.time_kernel.feature_count
-            ) @ t_emb
+        conv_params['kernel_params'] = _contract_with_emb(
+            conv_params['kernel_params'], t_emb)
+        conv_params['bias'] = _contract_with_emb(
+            conv_params['bias'], t_emb)
 
-        conv = nnx.merge(conv_graph, conv_params, conv_const)
+        conv = nnx.merge(conv_graph, conv_params)
 
         feature_superposition = (
             self.feature_superposition.value

@@ -1,4 +1,4 @@
-from functools import partial
+from functools import partial, reduce
 
 import chex
 import jax
@@ -137,3 +137,105 @@ def cyclic_corr_mat(arr: jnp.ndarray) -> jnp.ndarray:
     idx = jnp.arange(lattice_size).reshape(shape)
     _, c = fn(idx)
     return c.reshape(shape) / lattice_size
+
+
+@partial(jax.jit, static_argnames=('average',))
+def two_point(phis: jnp.ndarray, average: bool = True) -> jnp.ndarray:
+    """Estimate ``G(x) = <phi(0) phi(x)>``.
+
+    Translational invariance is assumed, so to improve the estimate we compute
+        ``mean_y <phi(y) phi(x+y)>``
+    using periodic boundary conditions.
+
+    Args:
+        phis: Samples of field configurations of shape
+            ``(batch size, L_1, ..., L_d)``.
+        average: If false, average over samples is not executed.
+
+    Returns:
+        Array of shape ``(L_1, ..., L_d)`` if ``average`` is true, otherwise
+        of shape ``(batch size, L_1, ..., L_d)``.
+    """
+    corr = jax.vmap(cyclic_corr)(phis, phis)
+    return jnp.mean(corr, axis=0) if average else corr
+
+
+@jax.jit
+def two_point_central(phis: jnp.ndarray) -> jnp.ndarray:
+    """Estimate ``G_c(x) = <phi(0) phi(x)> - <phi(0)> <phi(x)>``.
+
+    Translational invariance is assumed, so to improve the estimate we compute
+        ``mean_y <phi(y) phi(x+y)> - <phi(x)> mean_y <phi(x+y)>``
+    using periodic boundary conditions.
+
+    Args:
+        phis: Samples of field configurations of shape
+            ``(batch size, L_1, ..., L_d)``.
+
+    Returns:
+        Array of shape ``(L_1, ..., L_d)``.
+    """
+    phis_mean = jnp.mean(phis, axis=0)
+    outer = phis_mean * jnp.mean(phis_mean)
+
+    return two_point(phis, True) - outer
+
+
+@jax.jit
+def correlation_length(G):
+    """Estimator for the correlation length.
+
+    Args:
+        G: Centered two-point function.
+
+    Returns:
+        Scalar. Estimate of correlation length.
+    """
+    Gs = jnp.mean(G, axis=0)
+    arg = (jnp.roll(Gs, 1) + jnp.roll(Gs, -1)) / (2 * Gs)
+    mp = jnp.arccosh(arg[1:])
+    return 1 / jnp.nanmean(mp)
+
+
+@partial(jax.jit, static_argnums=(1,))
+def kinetic_term(phi: jax.Array, half: bool = False) -> jax.Array:
+    a = reduce(jnp.add, [
+        (jnp.roll(phi, 1, y) - phi) ** 2 for y in range(phi.ndim)
+    ])
+    a = a/2 if half else a
+    return a
+
+
+@partial(jax.jit, static_argnums=(2,))
+def poly_term(phi: jax.Array, coeffs: jax.Array, even: bool = False) -> jax.Array:
+    if even:
+        phi = phi ** 2
+    return jnp.polyval(coeffs, phi, unroll=128)
+
+
+@partial(jax.jit, static_argnums=(3,))
+def phi4_term(
+        phi: jax.Array,
+        m2: float,
+        lam: float | None = None,
+        half: bool = False
+    ) -> jax.Array:
+    phi2 = phi ** 2
+    a = kinetic_term(phi, half) + m2 * phi2
+    if lam is not None:
+        a += lam * phi2 ** 2
+    return a
+
+
+@jax.jit
+def phi4_term_alt(
+        phi: jax.Array,
+        kappa: float,
+        lam: float | None = None,
+    ) -> jax.Array:
+    kinetic = (-2 * kappa) * phi * reduce(jnp.add, [
+        jnp.roll(phi, 1, y) for y in range(phi.ndim)
+    ])
+    mass = (1 - 2 * lam) * phi ** 2
+    inter = lam * phi ** 4
+    return kinetic + mass + inter

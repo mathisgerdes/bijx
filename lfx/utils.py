@@ -167,14 +167,14 @@ class ShapeInfo:
     def tree_flatten(self):
         """Defines how to break down into JAX-compatible components"""
         children = ()  # No array leaves in this class
-        aux_data = (
-            self.event_shape,
-            self.space_shape,
-            self.channel_shape,
-            self.event_dim,
-            self.space_dim,
-            self.channel_dim
-        )
+        aux_data = {
+            'event_shape': self.event_shape,
+            'space_shape': self.space_shape,
+            'channel_shape': self.channel_shape,
+            'event_dim': self.event_dim,
+            'space_dim': self.space_dim,
+            'channel_dim': self.channel_dim
+        }
         return children, aux_data
 
     def __repr__(self):
@@ -190,7 +190,7 @@ class ShapeInfo:
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        return cls(*aux_data)
+        return cls(**aux_data)
 
 # Register as JAX pytree
 jax.tree_util.register_pytree_node(

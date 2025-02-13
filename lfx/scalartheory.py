@@ -208,6 +208,7 @@ def kinetic_term(phi: jax.Array, half: bool = False) -> jax.Array:
 
 @partial(jax.jit, static_argnums=(2,))
 def poly_term(phi: jax.Array, coeffs: jax.Array, even: bool = False) -> jax.Array:
+    coeffs = jnp.concatenate([coeffs, np.array([0.0])])
     if even:
         phi = phi ** 2
     return jnp.polyval(coeffs, phi, unroll=128)

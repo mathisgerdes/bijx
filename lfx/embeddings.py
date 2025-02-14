@@ -74,7 +74,7 @@ class KernelGauss(Embedding):
             self.width_factor = Const(width_factor)
 
     def __call__(self, val):
-        factor = nnx.softplus(self.factor)
+        factor = nnx.softplus(self.width_factor)
         inverse_width = factor * (self.feature_count - 1)
         # could also make this adaptive
         pos = jnp.linspace(0, 1, self.feature_count)

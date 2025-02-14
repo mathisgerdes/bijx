@@ -56,7 +56,7 @@ class FourierFeatures(NonlinearFeatures):
             feature_count: int,
             input_channels: int,
             *,
-            freq_init: tp.Callable = nnx.nn.initializers.uniform(5.0),
+            freq_init: tp.Callable = nnx.initializers.uniform(5.0),
             rngs: nnx.Rngs | None = None,
         ):
         super().__init__(input_channels * feature_count, rngs=rngs)
@@ -71,7 +71,7 @@ class FourierFeatures(NonlinearFeatures):
         )
 
     def apply_feature_map(self, phi_lin):
-        features = jnp.einsum('...i,ij->...ij', phi_lin, self.phi_freq)
+        features = jnp.einsum('...i,ij->...ij', phi_lin, self.phi_freq.value)
         features = jnp.sin(features)
         return features
 
@@ -98,7 +98,7 @@ class DivFeatures(NonlinearFeatures):
             feature_count: int,
             input_channels: int,
             *,
-            freq_init: tp.Callable = nnx.nn.initializers.uniform(5.0),
+            freq_init: tp.Callable = nnx.initializers.uniform(5.0),
             rngs: nnx.Rngs | None = None,
         ):
         super().__init__(input_channels * feature_count, rngs=rngs)
@@ -109,7 +109,6 @@ class DivFeatures(NonlinearFeatures):
             freq_init(
                 rngs.params(),
                 (input_channels, feature_count),
-                jnp.float32
             )
         )
 
@@ -169,9 +168,9 @@ class Phi4CNF(nnx.Module):
         # contract time embedding with conv kernel & bias
         conv_graph, conv_params = nnx.split(self.conv)
 
-        conv_params['kernel_params'] = _contract_with_emb(
+        conv_params['kernel_params'].value = _contract_with_emb(
             conv_params['kernel_params'], t_emb)
-        conv_params['bias'] = _contract_with_emb(
+        conv_params['bias'].value = _contract_with_emb(
             conv_params['bias'], t_emb)
 
         conv = nnx.merge(conv_graph, conv_params)
@@ -182,7 +181,7 @@ class Phi4CNF(nnx.Module):
         )
 
         # extract the local-coupling weights; shape=(in features, out features)
-        w00 = conv.kernel_params[0]
+        w00 = conv.kernel_params.value[0]
         # contract with feature superposition
         w00 = jnp.einsum('if,io->fo', feature_superposition, w00)
 

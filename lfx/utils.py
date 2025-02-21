@@ -27,6 +27,27 @@ def effective_sample_size(logp: jnp.ndarray, logq: jnp.ndarray) -> jnp.ndarray:
     return ess_per_sample
 
 
+@jax.jit
+def reverse_dkl(logp: jnp.ndarray, logq: jnp.ndarray) -> jnp.ndarray:
+    """Reverse KL divergence.
+
+    Assuming likelihood arrays are evaluated for the same set of samples drawn
+    from ``q``, this function then approximates the reverse KL divergence
+    ``int_x q(x) log(q(x)/p(x)) dx``.
+
+    If the samples were taken from p(x), the returned value is the negative
+    forward KL divergence: ``int_x p(x) log(q(x)/p(x)) dx``.
+
+    Args:
+        logp: The log likelihood of p (up to a constant shift).
+        logq: The log likelihood of q (up to a constant shift).
+
+    Returns:
+        Scalar representing the estimated reverse KL divergence.
+    """
+    return jnp.mean(logq - logp)
+
+
 @partial(jax.jit, static_argnums=(1,))
 def moving_average(x: jnp.ndarray, window: int = 10):
     """Moving average over 1d array."""

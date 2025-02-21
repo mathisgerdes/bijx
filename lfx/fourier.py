@@ -90,7 +90,7 @@ class FreeTheoryScaling(SpectrumScaling):
 
     @staticmethod
     def spectrum_function(ks, m2):
-        return 1 / (m2 + np.sum(ks**2, axis=0))
+        return 1 / (m2 + jnp.sum(ks**2, axis=-1))
 
     @property
     def scaling(self):

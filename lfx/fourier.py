@@ -18,12 +18,13 @@ def fft_momenta(shape: tuple[int, ...], reduced: bool = True, lattice: bool = Fa
 
     # get frequencies divided by shape as large grid
     # ks[i] is k varying along axis i from 0 to L_i
-    ks = np.mgrid[tuple(np.s_[:s] for s in shape)] / shape_factor
+    ks = np.mgrid[tuple(np.s_[:s] for s in shape)]
+    ks = 2 * jnp.pi * ks / shape_factor
     if lattice:
-        # with this true, spectrum ~ 1 / m^2 + k^2
+        # with this true, (finite) lattice spectrum ~ 1 / m^2 + k^2
         # otherwise get ~ 1 / k^2 - 2 (cos(2 pi k) - 1)
-        ks = 2 * jnp.sin(ks * jnp.pi)
-    # move "i" to last axis
+        ks = 2 * jnp.sin(ks / 2)
+    # move "i" (space-dim index) to last axis
     return np.moveaxis(ks, 0, -1)
 
 
@@ -32,38 +33,70 @@ class SpectrumScaling(Bijection):
 
     Note: scaling should be array of same shape as output of rfftn!
     """
-
     def __init__(self, scaling: jax.Array | nnx.Variable, channel_dim: int = 0):
         self.channel_dim = channel_dim
 
-        if isinstance(scaling, (jax.Array, np.ndarray)):
+        if not isinstance(scaling, nnx.Variable):
             scaling = Const(scaling)
-        self.scaling = scaling
+        self.scaling_var = scaling
         self.shape_info = ShapeInfo(space_shape=scaling.shape, channel_dim=channel_dim)
 
     @property
-    def scaling_array(self):
-        try:
-            return self.scaling.value
-        except AttributeError:
-            return self.scaling
+    def scaling(self):
+        return self.scaling_var.value
 
     def scale(self, r, reverse=False):
         _, shape_info = self.shape_info.process_event(r.shape)
-        scaling = self.scaling_array
 
         r = jnp.fft.rfftn(r, shape_info.space_shape, shape_info.space_axes)
-        r = r / scaling if reverse else r * scaling
+        r = r / self.scaling if reverse else r * self.scaling
         r = jnp.fft.irfftn(r, shape_info.space_shape, shape_info.space_axes)
         return r
 
     def forward(self, x, log_density):
-        log_density = log_density + jnp.sum(jnp.log(self.scaling_array))
+        log_density = log_density + jnp.sum(jnp.log(self.scaling))
         return self.scale(x, reverse=False), log_density
 
     def reverse(self, x, log_density):
-        log_density = log_density - jnp.sum(jnp.log(self.scaling_array))
+        log_density = log_density - jnp.sum(jnp.log(self.scaling))
         return self.scale(x, reverse=True), log_density
+
+
+class FreeTheoryScaling(SpectrumScaling):
+    """Scaling bijection which scales normal samples to free theory spectrum.
+
+    Attributes:
+        m2: The mass squared parameter. Can be a callable or a scalar value.
+        space_shape: The shape of the event.
+        channel_shape: The shape of the channel.
+        finite_size: Whether to consider finite size effects.
+    """
+    def __init__(
+            self,
+            m2: float | nnx.Variable,
+            space_shape: tuple[int, ...],
+            channel_dim: int = 0,
+            finite_size: bool = True,
+            precompute_spectrum: bool = True,
+        ):
+        ks = fft_momenta(space_shape, lattice=finite_size)
+        self.m2 = m2 if isinstance(m2, nnx.Variable) else Const(m2)
+        if precompute_spectrum and not isinstance(m2, nnx.Variable):
+            scaling = self.spectrum_function(ks, m2)
+        else:
+            scaling = None
+
+        super().__init__(scaling, channel_dim=channel_dim)
+
+    @staticmethod
+    def spectrum_function(ks, m2):
+        return 1 / (m2 + np.sum(ks**2, axis=0))
+
+    @property
+    def scaling(self):
+        if self.scaling_var.value is None:
+            return self.spectrum_function(self.ks, self.m2.value)
+        return self.scaling_var.value
 
 
 def get_fourier_masks(real_shape):

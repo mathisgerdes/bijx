@@ -53,7 +53,8 @@ class SpectrumScaling(Bijection):
         r = jnp.fft.irfftn(r, shape_info.space_shape, shape_info.space_axes)
 
         mr, mi = get_fourier_masks(shape_info.space_shape)
-        delta_ld = jnp.sum((mr + mi) * jnp.log(jnp.abs(self.scaling)))
+        factor = mr.astype(int) + mi.astype(int)
+        delta_ld = jnp.sum(factor * jnp.log(jnp.abs(self.scaling)))
 
         return r, delta_ld
 

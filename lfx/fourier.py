@@ -39,7 +39,7 @@ class SpectrumScaling(Bijection):
         if not isinstance(scaling, nnx.Variable):
             scaling = Const(scaling)
         self.scaling_var = scaling
-        self.shape_info = ShapeInfo(space_shape=scaling.shape, channel_dim=channel_dim)
+        self.shape_info = ShapeInfo(space_dim=len(scaling.shape), channel_dim=channel_dim)
 
     @property
     def scaling(self):
@@ -51,15 +51,19 @@ class SpectrumScaling(Bijection):
         r = jnp.fft.rfftn(r, shape_info.space_shape, shape_info.space_axes)
         r = r / self.scaling if reverse else r * self.scaling
         r = jnp.fft.irfftn(r, shape_info.space_shape, shape_info.space_axes)
-        return r
+
+        mr, mi = get_fourier_masks(shape_info.space_shape)
+        delta_ld = jnp.sum((mr + mi) * jnp.log(jnp.abs(self.scaling)))
+
+        return r, delta_ld
 
     def forward(self, x, log_density):
-        log_density = log_density + jnp.sum(jnp.log(self.scaling))
-        return self.scale(x, reverse=False), log_density
+        x, delta_ld = self.scale(x, reverse=False)
+        return x, log_density - delta_ld
 
     def reverse(self, x, log_density):
-        log_density = log_density - jnp.sum(jnp.log(self.scaling))
-        return self.scale(x, reverse=True), log_density
+        x, delta_ld = self.scale(x, reverse=True)
+        return x, log_density + delta_ld
 
 
 class FreeTheoryScaling(SpectrumScaling):
@@ -78,7 +82,9 @@ class FreeTheoryScaling(SpectrumScaling):
             channel_dim: int = 0,
             finite_size: bool = True,
             precompute_spectrum: bool = True,
+            half: bool = True,
         ):
+        self.half = half
         ks = fft_momenta(space_shape, lattice=finite_size)
         self.m2 = m2 if isinstance(m2, nnx.Variable) else Const(m2)
         if precompute_spectrum and not isinstance(m2, nnx.Variable):
@@ -88,9 +94,8 @@ class FreeTheoryScaling(SpectrumScaling):
 
         super().__init__(scaling, channel_dim=channel_dim)
 
-    @staticmethod
-    def spectrum_function(ks, m2):
-        return 1 / (m2 + jnp.sum(ks**2, axis=-1))
+    def spectrum_function(self, ks, m2):
+        return jnp.sqrt((1 if self.half else 0.5) / (m2 + jnp.sum(ks**2, axis=-1)))
 
     @property
     def scaling(self):

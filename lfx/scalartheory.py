@@ -197,12 +197,11 @@ def correlation_length(G):
     return 1 / jnp.nanmean(mp)
 
 
-@partial(jax.jit, static_argnums=(1,))
-def kinetic_term(phi: jax.Array, half: bool = False) -> jax.Array:
+@jax.jit
+def kinetic_term(phi: jax.Array) -> jax.Array:
     a = reduce(jnp.add, [
         (jnp.roll(phi, 1, y) - phi) ** 2 for y in range(phi.ndim)
     ])
-    a = a/2 if half else a
     return a
 
 
@@ -214,15 +213,19 @@ def poly_term(phi: jax.Array, coeffs: jax.Array, even: bool = False) -> jax.Arra
     return jnp.polyval(coeffs, phi, unroll=128)
 
 
-@partial(jax.jit, static_argnums=(3,))
+@jax.jit
 def phi4_term(
         phi: jax.Array,
         m2: float,
         lam: float | None = None,
-        half: bool = False
     ) -> jax.Array:
+    """
+    phi4_term = kinetic_term(phi) + m2 * phi ** 2
+
+    Note: does not include factor 1/2 to get S ~ m^2/2 (if desired).
+    """
     phi2 = phi ** 2
-    a = kinetic_term(phi, half) + m2 * phi2
+    a = kinetic_term(phi) + m2 * phi2
     if lam is not None:
         a += lam * phi2 ** 2
     return a

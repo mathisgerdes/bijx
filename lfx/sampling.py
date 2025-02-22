@@ -1,5 +1,6 @@
 from functools import partial
 
+import flax
 import flax.typing as ftp
 import jax
 import jax.numpy as jnp
@@ -119,9 +120,13 @@ class BufferedSampler(Sampler):
 
     def sample(
         self,
+        batch_shape: tuple[int, ...] = (),
         rng: nnx.RngKey | None = None,
         **kwargs
     ) -> tuple[ftp.ArrayPytree, jax.Array]:
+        if batch_shape != ():
+            return self.sampler.sample(batch_shape, rng=rng, **kwargs)
+
         _, self.buffer_index.value, self.buffer.value = nnx.cond(
             self.buffer_index.value >= self.buffer_size,
             lambda sampler: (sampler, 0, sampler.sample(
@@ -143,3 +148,70 @@ class BufferedSampler(Sampler):
 
     def log_prob(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
         return self.sampler.log_prob(x, **kwargs)
+
+
+# ------------------------------------------------------------------------------
+# Metropolis-Hastings
+# ------------------------------------------------------------------------------
+
+
+# independent Metropolis-Hastings
+# reason for not using blackjax.irmh here:
+# we produce log-likelihoods at same time as samples
+@flax.struct.dataclass
+class IMHState:
+    position: flax.typing.ArrayPytree
+    log_prob_target: float
+    log_prob_proposal: float
+
+
+@flax.struct.dataclass
+class IMHInfo:
+    is_accepted: bool
+    accept_prob: float
+    proposal: IMHState
+
+
+class IMH:
+    """
+    Independent Metropolis-Hastings
+
+    Roughly modeled after blackjax API, but note that the sampler is
+    expected to return "position" and proposal log-probabilities.
+    """
+
+    def __init__(self, sample, target_log_prob):
+        self.sample = sample
+        self.target_log_prob = target_log_prob
+
+    def propose(self, rng):
+        position, log_prob_proposal = self.sample(rng=rng)
+        return IMHState(
+            position=position,
+            log_prob_proposal=log_prob_proposal,
+            log_prob_target=self.target_log_prob(position),
+        )
+
+    def init(self, rng):
+        return self.propose(rng)
+
+    def step(self, rng, state):
+        proposal = self.propose(rng)
+
+        accept_prob = jnp.exp(
+            proposal.log_prob_target - proposal.log_prob_proposal
+            - state.log_prob_target + state.log_prob_proposal
+        )
+        accept_prob = jnp.minimum(accept_prob, 1.)
+        is_accepted = jax.random.bernoulli(rng, accept_prob)
+        new_state = jax.lax.cond(
+            is_accepted,
+            lambda prev, prop: prop,
+            lambda prev, prop: prev,
+            state, proposal
+        )
+        return new_state, IMHInfo(
+            is_accepted=is_accepted,
+            accept_prob=accept_prob,
+            proposal=proposal,
+        )

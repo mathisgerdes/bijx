@@ -1,7 +1,9 @@
 from . import bijections, conv, fourier, rk4ode, sampling, scalartheory, utils
 from ._version import __version__
+from .affine import AffineCoupling, SimpleConvNet, checker_mask
 from .bijections import (Bijection, Chain, Const, ContFlowDiffrax, ContFlowRK4,
-                         Frozen, Inverse, Scaling, Shift, filter_frozen)
+                         ExpandDims, Frozen, Inverse, MetaLayer, Scaling,
+                         Shift, filter_frozen)
 from .conv import ConvSym, kernel_d4, kernel_equidist
 from .embeddings import KernelFourier, KernelGauss, KernelLin, KernelReduced
 from .fourier import FreeTheoryScaling, SpectrumScaling, fft_momenta

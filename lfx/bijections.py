@@ -1,4 +1,5 @@
 import typing as tp
+from functools import partial
 
 import diffrax
 import flax.typing as ftp
@@ -25,6 +26,9 @@ class Bijection(nnx.Module):
 
     def __call__(self, x, log_density, **kwargs):
         return self.forward(x, log_density, **kwargs)
+
+    def invert(self):
+        return Inverse(self)
 
 
 class Inverse(Bijection):
@@ -131,6 +135,28 @@ class Shift(Bijection):
 
     def reverse(self, x, log_density, **kwargs):
         return x - self.shift, log_density
+
+
+
+class MetaLayer(Bijection):
+    """Convenience class for operations that do not change density."""
+    def __init__(self, forward: tp.Callable, reverse: tp.Callable, *, rngs=None):
+        self._forward = forward
+        self._reverse = reverse
+
+    def forward(self, x, log_density):
+        return self._forward(x), log_density
+
+    def reverse(self, x, log_density):
+        return self._reverse(x), log_density
+
+
+class ExpandDims(MetaLayer):
+    def __init__(self, axis: int = -1, *, rngs=None):
+        super().__init__(
+            partial(jnp.expand_dims, axis=axis),
+            partial(jnp.squeeze, axis=axis),
+        )
 
 
 class ContFlowDiffrax(Bijection):

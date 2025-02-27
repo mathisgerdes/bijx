@@ -175,3 +175,39 @@ class KernelReduced(Embedding):
         embed = self.kernel(val)
         sup = self.superposition.value / self.kernel.feature_count
         return jnp.einsum('ij,...j->...i', sup, embed)
+
+
+class PositionalEmbedding(Embedding):
+    """Sinusoidal positional embeddings.
+
+    This embedding is based on the sinusoidal embeddings from Fairseq.
+    It maps a scalar value to a vector of sinusoidal embeddings.
+
+    Args:
+        feature_count: The number of features in the embedding.
+        scale: Scaling factor for the input values (default: 1000).
+        rngs: Random number generators.
+    """
+    def __init__(
+            self,
+            feature_count: int,
+            *,
+            scale: float = 1000.,
+            rngs: nnx.Rngs | None = None,
+        ):
+        super().__init__(feature_count, rngs=rngs)
+        self.scale = scale
+
+    def __call__(self, val):
+        t_shape = jnp.shape(val)
+        t = jnp.reshape(val, -1)
+        t *= self.scale
+
+        half_dim = self.feature_count // 2
+        emb = jnp.log(10000) / (half_dim - 1)
+        emb = jnp.exp((-emb) * jnp.arange(half_dim, dtype=t.dtype))
+        emb = t[:, None] * emb[None, :]
+        emb = jnp.concatenate([jnp.sin(emb), jnp.cos(emb)], axis=1)
+        if self.feature_count % 2 == 1:  # zero pad
+            emb = jnp.pad(emb, ((0, 0), (0, 1)), constant_values=0.)
+        return emb.reshape(*t_shape, self.feature_count)

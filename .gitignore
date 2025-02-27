@@ -13,23 +13,22 @@ __pycache__/
 # C extensions
 *.so
 
-# venv
+# Virtual environments
 /env/
 
-# IDE
+# IDEs
 .idea/
+.virtual_documents/
+.vscode/
+.cursor/
 
+# Data
 /data/
 outputs/
 /figs/
-
 .DS_Store
 
 slurm-*.out
-
-# VSCode
-.virtual_documents/
-.vscode/
 
 # Generated version file
 lfx/_version.py

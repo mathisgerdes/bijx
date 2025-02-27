@@ -19,9 +19,8 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 from jax import core, custom_derivatives
-from jax.experimental.ode import ravel_first_arg
+from jax.experimental.ode import api_util, ravel_first_arg
 from jax.flatten_util import ravel_pytree
-
 
 # partially following
 # https://github.com/google/jax/blob/main/jax/experimental/ode.py
@@ -60,7 +59,7 @@ def odeint_rk4(fun, y0, end_time, *args, step_size, start_time=0):
 @partial(jax.jit, static_argnums=(0, 1))
 def _odeint_grid_wrapper(fun, step_size, y0, ts, *args):
     y0, unravel = ravel_pytree(y0)
-    fun = ravel_first_arg(fun, unravel)
+    fun = ravel_first_arg(fun, unravel, api_util.debug_info("odeint", fun, args, {}))
     out = _rk4_odeint(fun, step_size, y0, ts, *args)
     return unravel(out)
 

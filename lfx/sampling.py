@@ -109,6 +109,7 @@ class BufferedSampler(Sampler):
     """Buffers samples from a sampler to avoid recomputing them."""
 
     def __init__(self, sampler: Sampler, buffer_size: int):
+        super().__init__(sampler.rngs)
         self.sampler = sampler
         self.buffer_size = buffer_size
 

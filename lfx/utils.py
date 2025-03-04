@@ -213,6 +213,16 @@ class ShapeInfo:
     def tree_unflatten(cls, aux_data, children):
         return cls(**aux_data)
 
+    def __hash__(self) -> int:
+        _, info = self.tree_flatten()
+        return hash(info)
+
+    def __eq__(self, value: object) -> bool:
+        _, info_self = self.tree_flatten()
+        _, info_other = value.tree_flatten()
+        return info_self == info_other
+
+
 # Register as JAX pytree
 jax.tree_util.register_pytree_node(
     ShapeInfo,

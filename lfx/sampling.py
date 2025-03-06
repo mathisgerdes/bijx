@@ -1,3 +1,4 @@
+import typing as tp
 from functools import partial
 
 import flax
@@ -117,7 +118,7 @@ class BufferedSampler(Sampler):
         self.buffer = nnx.Variable(
             jax.tree.map(lambda s: jnp.empty(s.shape, s.dtype), shapes)
         )
-        self.buffer_index = nnx.Variable(buffer_size)
+        self.buffer_index = nnx.Variable(jnp.array(buffer_size, dtype=int))
 
     def sample(
         self,
@@ -130,7 +131,7 @@ class BufferedSampler(Sampler):
 
         _, self.buffer_index.value, self.buffer.value = nnx.cond(
             self.buffer_index.value >= self.buffer_size,
-            lambda sampler: (sampler, 0, sampler.sample(
+            lambda sampler: (sampler, jnp.zeros_like(self.buffer_index.value), sampler.sample(
                 (self.buffer_size,),
                 rng=rng,
                 **kwargs,
@@ -173,7 +174,7 @@ class IMHInfo:
     proposal: IMHState
 
 
-class IMH:
+class IMH(nnx.Module):
     """
     Independent Metropolis-Hastings
 
@@ -181,12 +182,12 @@ class IMH:
     expected to return "position" and proposal log-probabilities.
     """
 
-    def __init__(self, sample, target_log_prob):
-        self.sample = sample
+    def __init__(self, sampler: Sampler, target_log_prob: tp.Callable):
+        self.sampler = sampler
         self.target_log_prob = target_log_prob
 
     def propose(self, rng):
-        position, log_prob_proposal = self.sample(rng=rng)
+        position, log_prob_proposal = self.sampler.sample(rng=rng)
         return IMHState(
             position=position,
             log_prob_proposal=log_prob_proposal,

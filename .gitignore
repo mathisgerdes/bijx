@@ -31,4 +31,4 @@ outputs/
 slurm-*.out
 
 # Generated version file
-lfx/_version.py
+_version.py

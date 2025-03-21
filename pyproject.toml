@@ -25,8 +25,8 @@ dependencies = [
     "diffrax>=0.6.2",
     "einops>=0.8.0",
     "flax>=0.10.4",
-    "jax>=0.0",
-    "jaxlib>=0.5.1",
+    "jax>=0.5",
+    "jaxlib>=0.5",
     "numpy>=2.0.2",
     "optax>=0.2.4"
 ]
@@ -34,10 +34,35 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "mypy>=1.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "ruff>=0.0.241",
+    "pre-commit>=3.0.0",
 ]
 
 [tool.setuptools_scm]
-write_to = "lfx/_version.py"
+write_to = "src/lfx/_version.py"
 
 [tool.setuptools]
+package-dir = {"" = "src"}
 packages = ["lfx"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.black]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.ruff]
+line-length = 88

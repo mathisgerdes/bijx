@@ -97,7 +97,7 @@ class Sampler(Prior):
             **kwargs,
         ) -> tuple[ftp.ArrayPytree, jax.Array]:
         x, log_density = self.prior.sample(batch_shape, rng=rng, **kwargs)
-        x, log_density = self.bijection(x, log_density, **kwargs)
+        x, log_density = self.bijection.forward(x, log_density, **kwargs)
         return x, log_density
 
     def log_prob(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:

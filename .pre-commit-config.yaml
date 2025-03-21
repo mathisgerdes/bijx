@@ -1,8 +1,26 @@
 repos:
 - repo: https://github.com/psf/black
-  rev: 23.3.0
-  hooks: [{id: black}]
+  rev: 25.1.0
+  hooks:
+    - id: black
+      args: [--line-length=88]
 
 - repo: https://github.com/charliermarsh/ruff-pre-commit
-  rev: v0.0.241
-  hooks: [{id: ruff}]
+  rev: v0.11.1
+  hooks:
+    - id: ruff
+      args: [--fix, --show-fixes]
+
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v4.5.0
+  hooks:  # Basic sanity checks
+    - id: check-yaml
+    - id: end-of-file-fixer
+    - id: trailing-whitespace
+
+- repo: https://github.com/PyCQA/isort
+  rev: 6.0.1
+  hooks:
+    - id: isort
+      args: [--profile=black, --filter-files]
+      exclude: ^.*/__init__\.py$

@@ -4,23 +4,22 @@ Simple neural networks provided for convenience.
 
 import typing as tp
 
-import jax.numpy as jnp
 from flax import nnx
 
 
 class SimpleConvNet(nnx.Module):
 
     def __init__(
-            self,
-            in_channels: int,
-            out_channels: int,
-            kernel_size: tuple[int, ...] = (3, 3),
-            hidden_channels: list[int] = [8, 8],
-            activation: tp.Callable = nnx.leaky_relu,
-            final_activation: tp.Callable = nnx.tanh,
-            *,
-            rngs: nnx.Rngs,
-        ):
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: tuple[int, ...] = (3, 3),
+        hidden_channels: list[int] = [8, 8],
+        activation: tp.Callable = nnx.leaky_relu,
+        final_activation: tp.Callable = nnx.tanh,
+        *,
+        rngs: nnx.Rngs,
+    ):
         self.kernel_size = kernel_size
         self.activation = activation
         self.final_activation = final_activation
@@ -30,12 +29,12 @@ class SimpleConvNet(nnx.Module):
                 in_features=c_in,
                 out_features=c_out,
                 kernel_size=kernel_size,
-                padding='CIRCULAR',
+                padding="CIRCULAR",
                 rngs=rngs,
             )
             for c_in, c_out in zip(
                 [in_channels] + list(hidden_channels),
-                list(hidden_channels) + [out_channels]
+                list(hidden_channels) + [out_channels],
             )
         ]
 
@@ -50,46 +49,42 @@ class SimpleConvNet(nnx.Module):
 
 class SimpleResNet(nnx.Module):
     def __init__(
-            self,
-            in_features: int,
-            out_features: int,
-            width: int = 1024,
-            depth: int = 3,
-            *,
-            activation: tp.Callable = nnx.gelu,
-            final_activation: tp.Callable = lambda x: x,
-            dropout: float = 0.0,
-            final_bias_init: tp.Callable = nnx.initializers.zeros,
-            final_kernel_init: tp.Callable = nnx.initializers.lecun_normal(),
-            rngs: nnx.Rngs,
-        ):
-
-        # Store configuration
+        self,
+        in_features: int,
+        out_features: int,
+        width: int = 1024,
+        depth: int = 3,
+        *,
+        activation: tp.Callable = nnx.gelu,
+        final_activation: tp.Callable = lambda x: x,
+        dropout: float = 0.0,
+        final_bias_init: tp.Callable = nnx.initializers.zeros,
+        final_kernel_init: tp.Callable = nnx.initializers.lecun_normal(),
+        rngs: nnx.Rngs,
+    ):
         self.width = width
         self.depth = depth
         self.activation = activation
         self.final_activation = final_activation
         self.dropout_rate = dropout
 
-        # First layer with special initialization
-        self.first_layer = nnx.Linear(in_features=in_features, out_features=width, rngs=rngs)
+        self.first_layer = nnx.Linear(
+            in_features=in_features, out_features=width, rngs=rngs
+        )
 
-        # Hidden layers
         self.hidden_layers = [
             nnx.Linear(in_features=width, out_features=width, rngs=rngs)
             for _ in range(depth)
         ]
 
-        # Final layer
         self.final_layer = nnx.Linear(
             in_features=width,
             out_features=out_features,
             kernel_init=final_kernel_init,
             bias_init=final_bias_init,
-            rngs=rngs
+            rngs=rngs,
         )
 
-        # Dropout layer
         self.dropout = nnx.Dropout(rate=dropout)
 
     def __call__(self, x):

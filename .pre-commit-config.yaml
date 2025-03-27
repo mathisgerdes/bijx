@@ -23,8 +23,8 @@ repos:
         "--select=E,F,I,NPY,UP,N8,PT,SIM,ERA",
         "--ignore=E203",
       ]
-      # Exclude __init__.py from F401 (unused import) checks
-      exclude: ^.*/__init__\.py$
+      # Exclude __init__.py from F401 (unused import) checks and ipynb files
+      exclude: ^.*/__init__\.py$|.*\.ipynb$
 
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v4.5.0

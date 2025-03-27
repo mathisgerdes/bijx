@@ -6,11 +6,12 @@ import numpy as np
 from flax import nnx
 
 from .bijections import Bijection, Const
-from .sampling import Prior
 from .utils import ShapeInfo
 
 
-def fft_momenta(shape: tuple[int, ...], reduced: bool = True, lattice: bool = False) -> jax.Array:
+def fft_momenta(
+    shape: tuple[int, ...], reduced: bool = True, lattice: bool = False
+) -> jax.Array:
     shape_factor = np.reshape(shape, [-1] + [1] * len(shape))
     if reduced:
         # using reality condition, can eliminate about half of components
@@ -33,13 +34,16 @@ class SpectrumScaling(Bijection):
 
     Note: scaling should be array of same shape as output of rfftn!
     """
+
     def __init__(self, scaling: jax.Array | nnx.Variable, channel_dim: int = 0):
         self.channel_dim = channel_dim
 
         if not isinstance(scaling, nnx.Variable):
             scaling = Const(scaling)
         self.scaling_var = scaling
-        self.shape_info = ShapeInfo(space_dim=len(scaling.shape), channel_dim=channel_dim)
+        self.shape_info = ShapeInfo(
+            space_dim=len(scaling.shape), channel_dim=channel_dim
+        )
 
     @property
     def scaling(self):
@@ -76,15 +80,16 @@ class FreeTheoryScaling(SpectrumScaling):
         channel_shape: The shape of the channel.
         finite_size: Whether to consider finite size effects.
     """
+
     def __init__(
-            self,
-            m2: float | nnx.Variable,
-            space_shape: tuple[int, ...],
-            channel_dim: int = 0,
-            finite_size: bool = True,
-            precompute_spectrum: bool = True,
-            half: bool = True,
-        ):
+        self,
+        m2: float | nnx.Variable,
+        space_shape: tuple[int, ...],
+        channel_dim: int = 0,
+        finite_size: bool = True,
+        precompute_spectrum: bool = True,
+        half: bool = True,
+    ):
         self.half = half
         ks = fft_momenta(space_shape, lattice=finite_size)
         self.m2 = m2 if isinstance(m2, nnx.Variable) else Const(m2)
@@ -114,8 +119,7 @@ def get_fourier_masks(real_shape):
     imag_mask = np.ones(rfft_shape, dtype=bool)
 
     # right edge only if dimension is even length
-    edges = [[0] + ([s//2] if s % 2 == 0 else [])
-             for s in real_shape]
+    edges = [[0] + ([s // 2] if s % 2 == 0 else []) for s in real_shape]
 
     cp_start = [s // 2 + 1 for s in real_shape[:-1]]
 
@@ -126,7 +130,7 @@ def get_fourier_masks(real_shape):
     # zero because degrees of freedom are duplicated
     for i, s in enumerate(cp_start):
         for e1 in product(*edges[:i]):
-            for e2 in product(*edges[i+1:]):
+            for e2 in product(*edges[i + 1 :]):
                 real_mask[e1 + (np.s_[s:],) + e2] = False
                 imag_mask[e1 + (np.s_[s:],) + e2] = False
 

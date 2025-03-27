@@ -113,7 +113,7 @@ def cyclic_corr_mat(arr: jnp.ndarray) -> jnp.ndarray:
     """
     dim = arr.ndim // 2
     shape = arr.shape[:dim]
-    assert shape == arr.shape[dim:], 'Invalid outer_product shape.'
+    assert shape == arr.shape[dim:], "Invalid outer_product shape."
     lattice_size = np.prod(shape)
     arr = arr.reshape((lattice_size,) * 2)
 
@@ -139,7 +139,7 @@ def cyclic_corr_mat(arr: jnp.ndarray) -> jnp.ndarray:
     return c.reshape(shape) / lattice_size
 
 
-@partial(jax.jit, static_argnames=('average',))
+@partial(jax.jit, static_argnames=("average",))
 def two_point(phis: jnp.ndarray, average: bool = True) -> jnp.ndarray:
     """Estimate ``G(x) = <phi(0) phi(x)>``.
 
@@ -182,7 +182,7 @@ def two_point_central(phis: jnp.ndarray) -> jnp.ndarray:
 
 
 @jax.jit
-def correlation_length(G):
+def correlation_length(two_point: jax.Array):
     """Estimator for the correlation length.
 
     Args:
@@ -191,17 +191,15 @@ def correlation_length(G):
     Returns:
         Scalar. Estimate of correlation length.
     """
-    Gs = jnp.mean(G, axis=0)
-    arg = (jnp.roll(Gs, 1) + jnp.roll(Gs, -1)) / (2 * Gs)
+    marginal = jnp.mean(two_point, axis=0)
+    arg = (jnp.roll(marginal, 1) + jnp.roll(marginal, -1)) / (2 * marginal)
     mp = jnp.arccosh(arg[1:])
     return 1 / jnp.nanmean(mp)
 
 
 @jax.jit
 def kinetic_term(phi: jax.Array) -> jax.Array:
-    a = reduce(jnp.add, [
-        (jnp.roll(phi, 1, y) - phi) ** 2 for y in range(phi.ndim)
-    ])
+    a = reduce(jnp.add, [(jnp.roll(phi, 1, y) - phi) ** 2 for y in range(phi.ndim)])
     return a
 
 
@@ -209,37 +207,39 @@ def kinetic_term(phi: jax.Array) -> jax.Array:
 def poly_term(phi: jax.Array, coeffs: jax.Array, even: bool = False) -> jax.Array:
     coeffs = jnp.concatenate([coeffs, np.array([0.0])])
     if even:
-        phi = phi ** 2
+        phi = phi**2
     return jnp.polyval(coeffs, phi, unroll=128)
 
 
 @jax.jit
 def phi4_term(
-        phi: jax.Array,
-        m2: float,
-        lam: float | None = None,
-    ) -> jax.Array:
+    phi: jax.Array,
+    m2: float,
+    lam: float | None = None,
+) -> jax.Array:
     """
     phi4_term = kinetic_term(phi) + m2 * phi ** 2
 
     Note: does not include factor 1/2 to get S ~ m^2/2 (if desired).
     """
-    phi2 = phi ** 2
+    phi2 = phi**2
     a = kinetic_term(phi) + m2 * phi2
     if lam is not None:
-        a += lam * phi2 ** 2
+        a += lam * phi2**2
     return a
 
 
 @jax.jit
 def phi4_term_alt(
-        phi: jax.Array,
-        kappa: float,
-        lam: float | None = None,
-    ) -> jax.Array:
-    kinetic = (-2 * kappa) * phi * reduce(jnp.add, [
-        jnp.roll(phi, 1, y) for y in range(phi.ndim)
-    ])
-    mass = (1 - 2 * lam) * phi ** 2
-    inter = lam * phi ** 4
+    phi: jax.Array,
+    kappa: float,
+    lam: float | None = None,
+) -> jax.Array:
+    kinetic = (
+        (-2 * kappa)
+        * phi
+        * reduce(jnp.add, [jnp.roll(phi, 1, y) for y in range(phi.ndim)])
+    )
+    mass = (1 - 2 * lam) * phi**2
+    inter = lam * phi**4
     return kinetic + mass + inter

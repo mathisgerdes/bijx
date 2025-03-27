@@ -1,5 +1,4 @@
 import typing as tp
-from functools import partial
 
 import flax
 import flax.typing as ftp
@@ -26,11 +25,11 @@ class Prior(nnx.Module):
         raise NotImplementedError
 
     def sample(
-            self,
-            batch_shape: tuple[int, ...] = (),
-            rng: ftp.PRNGKey | None = None,
-            **kwargs,
-        ) -> tuple[ftp.ArrayPytree, jax.Array]:
+        self,
+        batch_shape: tuple[int, ...] = (),
+        rng: ftp.PRNGKey | None = None,
+        **kwargs,
+    ) -> tuple[ftp.ArrayPytree, jax.Array]:
         raise NotImplementedError
 
     def log_prob(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
@@ -56,11 +55,17 @@ class ArrayPrior(Prior):
         return tuple(range(-1, -self.event_dim - 1, -1))
 
     def get_batch_shape(self, x: ftp.ArrayPytree) -> tuple[int, ...]:
-        return x.shape[:-self.event_dim]
+        return x.shape[: -self.event_dim]
 
 
 class IndependentNormal(ArrayPrior):
-    def sample(self, batch_shape: tuple[int, ...] = (), *, rng: ftp.PRNGKey | None = None, **kwargs) -> jax.Array:
+    def sample(
+        self,
+        batch_shape: tuple[int, ...] = (),
+        *,
+        rng: ftp.PRNGKey | None = None,
+        **kwargs,
+    ) -> jax.Array:
         rng = self._get_rng(rng)
         x = jax.random.normal(rng, batch_shape + self.event_shape)
         return x, self.log_prob(x)
@@ -72,7 +77,13 @@ class IndependentNormal(ArrayPrior):
 
 
 class IndependentUniform(ArrayPrior):
-    def sample(self, batch_shape: tuple[int, ...] = (), *, rng: ftp.PRNGKey | None = None, **kwargs) -> jax.Array:
+    def sample(
+        self,
+        batch_shape: tuple[int, ...] = (),
+        *,
+        rng: ftp.PRNGKey | None = None,
+        **kwargs,
+    ) -> jax.Array:
         rng = self._get_rng(rng)
         x = jax.random.uniform(rng, batch_shape + self.event_shape)
         return x, self.log_prob(x)
@@ -91,11 +102,11 @@ class Sampler(Prior):
         self.bijection = bijection
 
     def sample(
-            self,
-            batch_shape: tuple[int, ...] = (),
-            rng: ftp.PRNGKey | None = None,
-            **kwargs,
-        ) -> tuple[ftp.ArrayPytree, jax.Array]:
+        self,
+        batch_shape: tuple[int, ...] = (),
+        rng: ftp.PRNGKey | None = None,
+        **kwargs,
+    ) -> tuple[ftp.ArrayPytree, jax.Array]:
         x, log_density = self.prior.sample(batch_shape, rng=rng, **kwargs)
         x, log_density = self.bijection.forward(x, log_density, **kwargs)
         return x, log_density
@@ -121,29 +132,27 @@ class BufferedSampler(Sampler):
         self.buffer_index = nnx.Variable(jnp.array(buffer_size, dtype=int))
 
     def sample(
-        self,
-        batch_shape: tuple[int, ...] = (),
-        rng: nnx.RngKey | None = None,
-        **kwargs
+        self, batch_shape: tuple[int, ...] = (), rng: nnx.RngKey | None = None, **kwargs
     ) -> tuple[ftp.ArrayPytree, jax.Array]:
         if batch_shape != ():
             return self.sampler.sample(batch_shape, rng=rng, **kwargs)
 
         _, self.buffer_index.value, self.buffer.value = nnx.cond(
             self.buffer_index.value >= self.buffer_size,
-            lambda sampler: (sampler, jnp.zeros_like(self.buffer_index.value), sampler.sample(
-                (self.buffer_size,),
-                rng=rng,
-                **kwargs,
-            )),
+            lambda sampler: (
+                sampler,
+                jnp.zeros_like(self.buffer_index.value),
+                sampler.sample(
+                    (self.buffer_size,),
+                    rng=rng,
+                    **kwargs,
+                ),
+            ),
             lambda sampler: (sampler, self.buffer_index.value + 1, self.buffer.value),
             self.sampler,
         )
 
-        sample = jax.tree.map(
-            lambda x: x[self.buffer_index.value],
-            self.buffer.value
-        )
+        sample = jax.tree.map(lambda x: x[self.buffer_index.value], self.buffer.value)
         self.buffer_index.value += 1
 
         return sample
@@ -201,16 +210,19 @@ class IMH(nnx.Module):
         proposal = self.propose(rng)
 
         accept_prob = jnp.exp(
-            proposal.log_prob_target - proposal.log_prob_proposal
-            - state.log_prob_target + state.log_prob_proposal
+            proposal.log_prob_target
+            - proposal.log_prob_proposal
+            - state.log_prob_target
+            + state.log_prob_proposal
         )
-        accept_prob = jnp.minimum(accept_prob, 1.)
+        accept_prob = jnp.minimum(accept_prob, 1.0)
         is_accepted = jax.random.bernoulli(rng, accept_prob)
         new_state = jax.lax.cond(
             is_accepted,
             lambda prev, prop: prop,
             lambda prev, prop: prev,
-            state, proposal
+            state,
+            proposal,
         )
         return new_state, IMHInfo(
             is_accepted=is_accepted,

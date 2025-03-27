@@ -1,6 +1,5 @@
 from functools import partial
 
-import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -22,7 +21,7 @@ def effective_sample_size(logp: jnp.ndarray, logq: jnp.ndarray) -> jnp.ndarray:
         The effective sample size per sample (between 0 and 1).
     """
     logw = logp - logq
-    log_ess = 2*jax.nn.logsumexp(logw, axis=0) - jax.nn.logsumexp(2*logw, axis=0)
+    log_ess = 2 * jax.nn.logsumexp(logw, axis=0) - jax.nn.logsumexp(2 * logw, axis=0)
     ess_per_sample = jnp.exp(log_ess) / len(logw)
     return ess_per_sample
 
@@ -54,7 +53,7 @@ def moving_average(x: jnp.ndarray, window: int = 10):
     if len(x) < window:
         return jnp.mean(x, keepdims=True)
     else:
-        return jnp.convolve(x, jnp.ones(window), 'valid') / window
+        return jnp.convolve(x, jnp.ones(window), "valid") / window
 
 
 def _none_or_tuple(x):
@@ -80,6 +79,7 @@ class ShapeInfo:
         space_dim: Number of spatial dimensions
         channel_dim: Number of channel dimensions
     """
+
     event_shape: tuple[int, ...] | None = None
     space_shape: tuple[int, ...] | None = None
     channel_shape: tuple[int, ...] | None = None
@@ -88,14 +88,14 @@ class ShapeInfo:
     channel_dim: int | None = None
 
     def __init__(
-            self,
-            event_shape: tuple[int, ...] | None = None,
-            space_shape: tuple[int, ...] | None = None,
-            channel_shape: tuple[int, ...] | None = None,
-            event_dim: int | None = None,
-            channel_dim: int | None = None,
-            space_dim: int | None = None,
-        ):
+        self,
+        event_shape: tuple[int, ...] | None = None,
+        space_shape: tuple[int, ...] | None = None,
+        channel_shape: tuple[int, ...] | None = None,
+        event_dim: int | None = None,
+        channel_dim: int | None = None,
+        space_dim: int | None = None,
+    ):
 
         event_shape = _none_or_tuple(event_shape)
         space_shape = _none_or_tuple(space_shape)
@@ -147,10 +147,11 @@ class ShapeInfo:
                 channel_shape=(),
             )
 
-        batch_shape = batched_shape[:-self.event_dim]
-        event_shape = batched_shape[-self.event_dim:]
-        assert self.event_shape is None or self.event_shape == event_shape, \
-            f"event shape mismatch: {self.event_shape=} != {event_shape=}"
+        batch_shape = batched_shape[: -self.event_dim]
+        event_shape = batched_shape[-self.event_dim :]
+        assert (
+            self.event_shape is None or self.event_shape == event_shape
+        ), f"event shape mismatch: {self.event_shape=} != {event_shape=}"
 
         return batch_shape, ShapeInfo(
             event_shape=event_shape,
@@ -189,12 +190,12 @@ class ShapeInfo:
         """Defines how to break down into JAX-compatible components"""
         children = ()  # No array leaves in this class
         aux_data = {
-            'event_shape': self.event_shape,
-            'space_shape': self.space_shape,
-            'channel_shape': self.channel_shape,
-            'event_dim': self.event_dim,
-            'space_dim': self.space_dim,
-            'channel_dim': self.channel_dim
+            "event_shape": self.event_shape,
+            "space_shape": self.space_shape,
+            "channel_shape": self.channel_shape,
+            "event_dim": self.event_dim,
+            "space_dim": self.space_dim,
+            "channel_dim": self.channel_dim,
         }
         return children, aux_data
 
@@ -205,7 +206,7 @@ class ShapeInfo:
             f"channel_shape={self.channel_shape}",
             f"event_dim={self.event_dim}",
             f"space_dim={self.space_dim}",
-            f"channel_dim={self.channel_dim}"
+            f"channel_dim={self.channel_dim}",
         ]
         return f"ShapeInfo({', '.join(attrs)})"
 
@@ -225,7 +226,5 @@ class ShapeInfo:
 
 # Register as JAX pytree
 jax.tree_util.register_pytree_node(
-    ShapeInfo,
-    ShapeInfo.tree_flatten,
-    ShapeInfo.tree_unflatten
+    ShapeInfo, ShapeInfo.tree_flatten, ShapeInfo.tree_unflatten
 )

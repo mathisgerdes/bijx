@@ -1,6 +1,5 @@
 import typing as tp
 
-import chex
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
@@ -18,26 +17,26 @@ def rescale_range(val, val_range: tuple[float, float] | None):
 
 class Embedding(nnx.Module):
     def __init__(
-            self,
-            feature_count: int,
-            *,
-            rngs: nnx.Rngs | None = None,
-        ):
+        self,
+        feature_count: int,
+        *,
+        rngs: nnx.Rngs | None = None,
+    ):
         self.feature_count = feature_count
 
 
 class KernelGauss(Embedding):
     def __init__(
-            self,
-            feature_count: int,
-            *,
-            val_range: tuple[float, float] | None = None,
-            width_factor: float = np.log(np.exp(1) - 1),
-            adaptive_width: bool = True,
-            norm: bool = True,
-            one_width: bool = True,
-            rngs: nnx.Rngs | None = None,
-        ):
+        self,
+        feature_count: int,
+        *,
+        val_range: tuple[float, float] | None = None,
+        width_factor: float = np.log(np.exp(1) - 1),
+        adaptive_width: bool = True,
+        norm: bool = True,
+        one_width: bool = True,
+        rngs: nnx.Rngs | None = None,
+    ):
         """
         Smooth interpolation based on Gaussians.
 
@@ -68,8 +67,7 @@ class KernelGauss(Embedding):
 
         width_shape = () if self.one_width else (self.feature_count,)
         if self.adaptive_width:
-            self.width_factor = nnx.Param(
-                jnp.full(width_shape, self.width_factor))
+            self.width_factor = nnx.Param(jnp.full(width_shape, self.width_factor))
         else:
             self.width_factor = Const(width_factor)
 
@@ -79,19 +77,19 @@ class KernelGauss(Embedding):
         # could also make this adaptive
         pos = jnp.linspace(0, 1, self.feature_count)
         val = rescale_range(val, self.val_range)
-        val = - (val - pos)**2 * inverse_width
+        val = -((val - pos) ** 2) * inverse_width
         out = jnp.exp(val)
         return out / jnp.sum(out) if self.norm else out
 
 
 class KernelLin(Embedding):
     def __init__(
-            self,
-            feature_count: int,
-            *,
-            val_range: tuple[float, float] | None = None,
-            rngs: nnx.Rngs | None = None,
-        ):
+        self,
+        feature_count: int,
+        *,
+        val_range: tuple[float, float] | None = None,
+        rngs: nnx.Rngs | None = None,
+    ):
         """Linear interpolation kernel.
 
         The output of the model is an array like ``[a1, a2, ...]``
@@ -120,12 +118,12 @@ class KernelLin(Embedding):
 
 class KernelFourier(Embedding):
     def __init__(
-            self,
-            feature_count: int,
-            *,
-            val_range: tuple[float, float] | None = None,
-            rngs: nnx.Rngs | None = None,
-        ):
+        self,
+        feature_count: int,
+        *,
+        val_range: tuple[float, float] | None = None,
+        rngs: nnx.Rngs | None = None,
+    ):
         """Truncated fourier expansion on given interval.
 
         Given an input x to the model, the output is an array like
@@ -148,33 +146,29 @@ class KernelFourier(Embedding):
         val = rescale_range(val, self.val_range)
         sin = jnp.sin(2 * jnp.pi * freq * val)
         cos = jnp.cos(2 * jnp.pi * freq * val)
-        return jnp.concatenate((sin, cos, jnp.array([1.])))
+        return jnp.concatenate((sin, cos, jnp.array([1.0])))
 
 
 class KernelReduced(Embedding):
     def __init__(
-            self,
-            kernel: nnx.Module,
-            feature_count: int,
-            *,
-            init: tp.Callable = nnx.initializers.orthogonal(),
-            rngs: nnx.Rngs | None = None,
-        ):
+        self,
+        kernel: nnx.Module,
+        feature_count: int,
+        *,
+        init: tp.Callable = nnx.initializers.orthogonal(),
+        rngs: nnx.Rngs | None = None,
+    ):
         super().__init__(feature_count, rngs=rngs)
         self.kernel = kernel
 
         self.superposition = nnx.Param(
-            init(
-                rngs.params(),
-                (feature_count, self.kernel.feature_count),
-                jnp.float32
-            )
+            init(rngs.params(), (feature_count, self.kernel.feature_count), jnp.float32)
         )
 
     def __call__(self, val):
         embed = self.kernel(val)
         sup = self.superposition.value / self.kernel.feature_count
-        return jnp.einsum('ij,...j->...i', sup, embed)
+        return jnp.einsum("ij,...j->...i", sup, embed)
 
 
 class PositionalEmbedding(Embedding):
@@ -188,13 +182,14 @@ class PositionalEmbedding(Embedding):
         scale: Scaling factor for the input values (default: 1000).
         rngs: Random number generators.
     """
+
     def __init__(
-            self,
-            feature_count: int,
-            *,
-            scale: float = 1000.,
-            rngs: nnx.Rngs | None = None,
-        ):
+        self,
+        feature_count: int,
+        *,
+        scale: float = 1000.0,
+        rngs: nnx.Rngs | None = None,
+    ):
         super().__init__(feature_count, rngs=rngs)
         self.scale = scale
 
@@ -209,5 +204,5 @@ class PositionalEmbedding(Embedding):
         emb = t[:, None] * emb[None, :]
         emb = jnp.concatenate([jnp.sin(emb), jnp.cos(emb)], axis=1)
         if self.feature_count % 2 == 1:  # zero pad
-            emb = jnp.pad(emb, ((0, 0), (0, 1)), constant_values=0.)
+            emb = jnp.pad(emb, ((0, 0), (0, 1)), constant_values=0.0)
         return emb.reshape(*t_shape, self.feature_count)

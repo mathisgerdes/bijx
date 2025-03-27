@@ -1,4 +1,3 @@
-import typing as tp
 from functools import partial
 
 import jax
@@ -46,6 +45,10 @@ class AffineCoupling(Bijection):
     ])
     ```
 
+    `net` should map: `x_f -> act`
+    such that `s, t = split(act, 2, -1)`
+    and `x_out = t + x_a * exp(s) + x_f`
+
     Args:
         net: Network that maps frozen features to s, t.
         mask: Mask to apply to input.
@@ -53,8 +56,6 @@ class AffineCoupling(Bijection):
 
     def __init__(self, net: nnx.Module, mask: jax.Array, *, rngs=None):
         self.mask = Const(mask)
-        # x_f -> act such that s,t=split(act, 2, -1) and
-        # x_out = t + x_a * exp(s) + x_f
         self.net = net
 
     @property
@@ -86,15 +87,18 @@ class AffineCoupling(Bijection):
         return x, log_density + log_jac
 
 
-
 def apply_mrq_spline(
-        x, w, h, d, *,
-        inverse=False,
-        min_bin_width=1e-3,
-        min_bin_height=1e-3,
-        min_derivative=1e-3,
-    ):
-    # following [1906.04032]
+    x,
+    w,
+    h,
+    d,
+    *,
+    inverse=False,
+    min_bin_width=1e-3,
+    min_bin_height=1e-3,
+    min_derivative=1e-3,
+):
+    # following arxiv: [1906.04032]
     # assumption: x.shape = (n,), others are (n, *)
     knots = w.shape[-1]
 
@@ -109,7 +113,7 @@ def apply_mrq_spline(
     ys = jnp.pad(jnp.cumsum(h, -1), [(0, 0)] * (h.ndim - 1) + [(1, 0)])
 
     # derivatives
-    beta =  np.log(2) / (1 - min_derivative)
+    beta = np.log(2) / (1 - min_derivative)
     deltas = min_derivative + nnx.softplus(beta * d) / beta
 
     @jax.vmap
@@ -117,9 +121,9 @@ def apply_mrq_spline(
         return a[k]
 
     if inverse:
-        k = jax.vmap(partial(jnp.searchsorted, side='right'))(ys, x) - 1
+        k = jax.vmap(partial(jnp.searchsorted, side="right"))(ys, x) - 1
     else:
-        k = jax.vmap(partial(jnp.searchsorted, side='right'))(xs, x) - 1
+        k = jax.vmap(partial(jnp.searchsorted, side="right"))(xs, x) - 1
 
     x_k = _index(xs, k)
     x_diff = _index(w, k)
@@ -144,7 +148,8 @@ def apply_mrq_spline(
         r1r = root * (1 - root)
         denominator = s_k + ((d_k + d_k1 - 2 * s_k) * r1r)
         derivative_numerator = s_k**2 * (
-            d_k1 * root**2 + 2 * s_k * r1r + d_k * (1 - root)**2)
+            d_k1 * root**2 + 2 * s_k * r1r + d_k * (1 - root) ** 2
+        )
         log_det = jnp.log(derivative_numerator) - 2 * jnp.log(denominator)
 
         return outputs, -log_det
@@ -157,7 +162,8 @@ def apply_mrq_spline(
     out = y_k + y_diff * alpha / beta
 
     derivative_numerator = s_k**2 * (
-            d_k1 * xi**2 + 2 * s_k * xi * (1 - xi) + d_k * (1 - xi)**2)
+        d_k1 * xi**2 + 2 * s_k * xi * (1 - xi) + d_k * (1 - xi) ** 2
+    )
     log_det = jnp.log(derivative_numerator) - 2 * jnp.log(beta)
     return out, log_det
 
@@ -183,16 +189,17 @@ class MonotoneRQSpline(nnx.Module):
     y, delta_log_prob = spline(x, cond)
     ```
     """
+
     def __init__(
-            self,
-            knots: int,
-            params_net: nnx.Module,
-            *,
-            min_bin_width: float = 1e-3,
-            min_bin_height: float = 1e-3,
-            min_derivative: float = 1e-3,
-            rngs: nnx.Rngs | None = None,
-        ):
+        self,
+        knots: int,
+        params_net: nnx.Module,
+        *,
+        min_bin_width: float = 1e-3,
+        min_bin_height: float = 1e-3,
+        min_derivative: float = 1e-3,
+        rngs: nnx.Rngs | None = None,
+    ):
         self.knots = knots
         self.params_net = params_net
         self.min_bin_width = min_bin_width
@@ -216,7 +223,8 @@ class MonotoneRQSpline(nnx.Module):
         shape = x.shape
         x = x.reshape(-1, x.shape[-1])
         params = params.reshape(
-            x.shape[0], self.spline_param_count(self.knots) * x.shape[1])
+            x.shape[0], self.spline_param_count(self.knots) * x.shape[1]
+        )
 
         w, h, d = jnp.split(
             params,
@@ -225,7 +233,10 @@ class MonotoneRQSpline(nnx.Module):
         )
 
         x, delta_log_density = apply_mrq_spline(
-            x, w, h, d,
+            x,
+            w,
+            h,
+            d,
             inverse=inverse,
             min_bin_width=self.min_bin_width,
             min_bin_height=self.min_bin_height,

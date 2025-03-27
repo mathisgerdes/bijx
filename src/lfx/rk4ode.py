@@ -42,6 +42,7 @@ def odeint_rk4(fun, y0, end_time, *args, step_size, start_time=0):
         Final value `y` after the integration,
         of the same shape and type as `y0`.
     """
+
     # use other convention below...
     def _fun(y, t, *args):
         return fun(t, y, *args)
@@ -49,7 +50,8 @@ def odeint_rk4(fun, y0, end_time, *args, step_size, start_time=0):
     for arg in jax.tree_util.tree_leaves(args):
         if not isinstance(arg, core.Tracer) and not core.valid_jaxtype(arg):
             raise TypeError(
-                f'The contents of odeint *args must be arrays or scalars, but got {arg}.')
+                f"The contents of *args must be arrays or scalars, but got {arg}."
+            )
     ts = jnp.array([start_time, end_time], dtype=float)
 
     converted, consts = custom_derivatives.closure_convert(_fun, y0, ts[0], *args)
@@ -66,7 +68,9 @@ def _odeint_grid_wrapper(fun, step_size, y0, ts, *args):
 
 @partial(jax.custom_vjp, nondiff_argnums=(0, 1))
 def _rk4_odeint(fun, step_size, y0, ts, *args):
-    func_ = lambda y, t: fun(y, t, *args)
+
+    def func_(y, t):
+        return fun(y, t, *args)
 
     def step_func(cur_t, dt, cur_y):
         """Take one step of RK4."""
@@ -111,7 +115,7 @@ def _rk4_odeint_rev(fun, step_size, res, g):
         return (-y_dot, *vjpfun(y_bar))
 
     args_bar = jax.tree_util.tree_map(jnp.zeros_like, args)
-    t0_bar = 0.
+    t0_bar = 0.0
     y_bar = g
 
     # Compute effect of moving measurement time
@@ -120,8 +124,13 @@ def _rk4_odeint_rev(fun, step_size, res, g):
 
     # Run augmented system backwards
     _, y_bar, t0_bar, args_bar = odeint_rk4(
-        aug_dynamics, (y_final, y_bar, t0_bar, args_bar),
-        -ts[0], *args, step_size=step_size, start_time=-ts[1])
+        aug_dynamics,
+        (y_final, y_bar, t0_bar, args_bar),
+        -ts[0],
+        *args,
+        step_size=step_size,
+        start_time=-ts[1],
+    )
 
     ts_bar = jnp.array([t0_bar, t_bar])
     return (y_bar, ts_bar, *args_bar)

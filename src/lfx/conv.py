@@ -24,10 +24,7 @@ def conv_indices(shape: tuple[int, ...], return_flat=True, center=True):
     xs_grid = np.indices(shape)
     flat = np.reshape(xs_grid, (len(shape), np.prod(shape)))
     mods = np.array(shape).reshape((-1, 1, 1))
-    if center:
-        shift = np.array(shape).reshape((-1, 1, 1)) // 2
-    else:
-        shift = 0
+    shift = np.array(shape).reshape((-1, 1, 1)) // 2 if center else 0
     added = np.mod(flat[:, None, :] - flat[:, :, None] + shift, mods)
     full_shape = (len(shape), *shape, *shape)
     return added if return_flat else added.reshape(full_shape)
@@ -44,8 +41,8 @@ def _lattice_distances(shape: tuple[int, ...]):
         at L//2 in each dimension of length L.
     """
     coords = [np.arange(-((s - 1) // 2), 1 + s // 2) for s in shape]
-    coords = np.meshgrid(*coords, indexing='ij')
-    dist = sum(c ** 2 for c in coords)
+    coords = np.meshgrid(*coords, indexing="ij")
+    dist = sum(c**2 for c in coords)
     return dist
 
 
@@ -87,9 +84,9 @@ def rot_lattice_90(lattice: jnp.ndarray, ax1: int, ax2: int) -> jnp.ndarray:
 
 
 def gather_orbits(
-        shape: tuple[int, ...],
-        transformations: list[tp.Callable[[jnp.ndarray], jnp.ndarray]]) \
-        -> tuple[int, jnp.ndarray]:
+    shape: tuple[int, ...],
+    transformations: list[tp.Callable[[jnp.ndarray], jnp.ndarray]],
+) -> tuple[int, jnp.ndarray]:
     """Compute orbit indices for lattice given shape and transformations.
 
     One orbit is defined by a set of indices which can be transformed
@@ -110,7 +107,8 @@ def gather_orbits(
 
     # generate the stack of transformed lattices
     partial_orbits = np.empty(
-        (len(unique_indices), len(transformations) + 1), dtype=int)
+        (len(unique_indices), len(transformations) + 1), dtype=int
+    )
     partial_orbits[:, 0] = unique_indices
     for i, op in enumerate(transformations):
         partial_orbits[:, i + 1] = op(lattice).flatten()
@@ -167,10 +165,10 @@ def kernel_d4(shape: tuple[int, ...]) -> tuple[int, jnp.ndarray]:
     Returns:
         Tuple (number of orbits, integer array of orbit for each site).
     """
-    assert all(shape[0] == li for li in shape[1:]), \
-        'Rotation requires all side lengths to be equal.'
-    transformations = [partial(flip_lattice, axis=i)
-                       for i in range(len(shape))]
+    assert all(
+        shape[0] == li for li in shape[1:]
+    ), "Rotation requires all side lengths to be equal."
+    transformations = [partial(flip_lattice, axis=i) for i in range(len(shape))]
     for i in range(len(shape)):
         # probably redundantly many
         for j in range(i, len(shape)):
@@ -191,8 +189,7 @@ def kernel_equidist(shape: tuple[int, ...]) -> tuple[int, jnp.ndarray]:
     return _gather_orbit_indices(dist)
 
 
-def unfold_kernel(
-        kernel_params: jnp.ndarray, orbits: jnp.ndarray) -> jnp.ndarray:
+def unfold_kernel(kernel_params: jnp.ndarray, orbits: jnp.ndarray) -> jnp.ndarray:
     """Expand the parameters of a symmetric kernel into full conv kernel.
 
     This function is the inverse of ``fold_kernel``.
@@ -209,13 +206,13 @@ def unfold_kernel(
 
 
 def resize_kernel_weights(
-        kernel: jnp.ndarray,
-        new_shape: int | tuple[int, ...],
-        *,
-        mode: str = 'constant',
-        constant_values: float = 0.,
-        **pad_args,
-    ) -> jnp.ndarray:
+    kernel: jnp.ndarray,
+    new_shape: int | tuple[int, ...],
+    *,
+    mode: str = "constant",
+    constant_values: float = 0.0,
+    **pad_args,
+) -> jnp.ndarray:
     """Increase the size of conv kernel by padding with zeros.
 
     The non-trivial part comes from dimensions with even length.
@@ -235,17 +232,19 @@ def resize_kernel_weights(
     """
     shape = kernel.shape[:-2]
     if isinstance(new_shape, tuple):
-        assert len(new_shape) == len(shape), \
-            'The dimension of the new shape does not match existing kernel.'
+        assert len(new_shape) == len(
+            shape
+        ), "The dimension of the new shape does not match existing kernel."
     else:
         new_shape = (new_shape,) * len(shape)
 
     # in even dimensions, copy the 'wrap-around' indices (at the edge)
     wraps = [
         (1, 0) if (old % 2 == 0) and new > old else (0, 0)
-        for new, old in zip(new_shape, shape)]
+        for new, old in zip(new_shape, shape)
+    ]
 
-    kernel = np.pad(kernel, [*wraps, (0, 0), (0, 0)], 'wrap')
+    kernel = np.pad(kernel, [*wraps, (0, 0), (0, 0)], "wrap")
 
     # divide copied values by two
     _slice = np.index_exp[:]
@@ -259,7 +258,9 @@ def resize_kernel_weights(
         for new, old in zip(new_shape, shape)
     ]
     w = np.pad(
-        kernel, padding + [(0, 0)] * 2, mode,
+        kernel,
+        padding + [(0, 0)] * 2,
+        mode,
         constant_values=constant_values,
         **pad_args,
     )
@@ -270,14 +271,15 @@ def resize_kernel_weights(
         if new >= old:
             crop += np.index_exp[:]
         else:
-            crop += np.index_exp[(old-new+(old%2))//2:-(old-new+(new%2))//2]
+            crop += np.index_exp[
+                (old - new + (old % 2)) // 2 : -(old - new + (new % 2)) // 2
+            ]
     return w[crop]
 
 
 def fold_kernel(
-        kernel_weights: jnp.ndarray,
-        orbits: jnp.ndarray,
-        orbit_count: int) -> jnp.ndarray:
+    kernel_weights: jnp.ndarray, orbits: jnp.ndarray, orbit_count: int
+) -> jnp.ndarray:
     """Convert symmetric conv kernel into the unique independent parameters.
 
     This function is the inverse of ``unfold_kernel``.
@@ -318,11 +320,12 @@ class ConvSym(nnx.Module):
             inter-window strides (default: 1).
         padding: either the string ``'SAME'``, the string ``'VALID'``, the string
             ``'CIRCULAR'`` (periodic boundary conditions), or a sequence of ``n``
-            ``(low, high)`` integer pairs that give the padding to apply before and after each
-            spatial dimension. A single int is interpeted as applying the same padding
-            in all dims and passign a single int in a sequence causes the same padding
-            to be used on both sides. ``'CAUSAL'`` padding for a 1D convolution will
-            left-pad the convolution axis, resulting in same-sized output.
+            ``(low, high)`` integer pairs that give the padding to apply before
+            and after each spatial dimension. A single int is interpeted as
+            applying the same padding in all dims and passign a single int in a
+            sequence causes the same padding to be used on both sides.
+            ``'CAUSAL'`` padding for a 1D convolution will left-pad the
+            convolution axis, resulting in same-sized output.
         input_dilation: an integer or a sequence of ``n`` integers, giving the
             dilation factor to apply in each spatial dimension of ``inputs``
             (default: 1). Convolution with input dilation ``d`` is equivalent to
@@ -353,7 +356,7 @@ class ConvSym(nnx.Module):
         orbit_function: tp.Callable | None = kernel_d4,
         strides: int | tp.Sequence[int] = 1,
         *,
-        padding: ftp.PaddingLike = 'CIRCULAR',
+        padding: ftp.PaddingLike = "CIRCULAR",
         input_dilation: int | tp.Sequence[int] = 1,
         kernel_dilation: int | tp.Sequence[int] = 1,
         feature_group_count: int = 1,
@@ -383,8 +386,7 @@ class ConvSym(nnx.Module):
             w_shape = (orbit_count, kernel_shape[-2], kernel_shape[-1])
         else:
             self.orbits = Const(None)
-            w_shape = (np.prod(kernel_shape[:-2]),
-                       kernel_shape[-2], kernel_shape[-1])
+            w_shape = (np.prod(kernel_shape[:-2]), kernel_shape[-2], kernel_shape[-1])
 
         kernel_key = rngs.params()
         self.kernel_params = nnx.Param(kernel_init(kernel_key, w_shape, param_dtype))
@@ -413,7 +415,6 @@ class ConvSym(nnx.Module):
         self.kernel_init = kernel_init
         self.bias_init = bias_init
         self.conv_general_dilated = conv_general_dilated
-
 
     @property
     def kernel(self) -> nnx.Param[jax.Array]:

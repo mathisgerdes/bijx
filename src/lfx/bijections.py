@@ -11,10 +11,12 @@ from flax import nnx
 from .rk4ode import odeint_rk4
 
 
-class Const(nnx.Variable): pass
+class Const(nnx.Variable):
+    pass
+
 
 # filter constants (above) and things wrapped in Frozen (defined below)
-filter_frozen = nnx.Any(Const, nnx.PathContains('frozen'))
+filter_frozen = nnx.Any(Const, nnx.PathContains("frozen"))
 
 
 class Bijection(nnx.Module):
@@ -46,19 +48,22 @@ class Chain(Bijection):
     def __init__(self, bijections: list[Bijection]):
         self.bijections = bijections
 
-    def forward(self, x, log_density, *, arg_list: list[dict]|None = None, **kwargs):
+    def forward(self, x, log_density, *, arg_list: list[dict] | None = None, **kwargs):
         if arg_list is None:
             arg_list = [{}] * len(self.bijections)
         for bijection, args in zip(self.bijections, arg_list, strict=True):
             x, log_density = bijection.forward(x, log_density, *args, **kwargs)
         return x, log_density
 
-    def reverse(self, x, log_density, *, arg_list: list[dict]|None = None, **kwargs):
+    def reverse(self, x, log_density, *, arg_list: list[dict] | None = None, **kwargs):
         if arg_list is None:
             arg_list = [{}] * len(self.bijections)
-        for bijection, args in zip(reversed(self.bijections), reversed(arg_list), strict=True):
+        for bijection, args in zip(
+            reversed(self.bijections), reversed(arg_list), strict=True
+        ):
             x, log_density = bijection.reverse(x, log_density, *args, **kwargs)
         return x, log_density
+
 
 class Frozen(Bijection):
     def __init__(self, bijection: Bijection):
@@ -73,20 +78,22 @@ class Frozen(Bijection):
 
 class Scaling(Bijection):
     def __init__(
-            self,
-            shape_or_val: jax.Array | tuple[int, ...],
-            transform: tp.Callable = lambda x: x,
-            *,
-            init: ftp.Initializer = nnx.initializers.ones,
-            dtype=jnp.float32,
-            rngs: nnx.Rngs | None = None,
-        ):
+        self,
+        shape_or_val: jax.Array | tuple[int, ...],
+        transform: tp.Callable = lambda x: x,
+        *,
+        init: ftp.Initializer = nnx.initializers.ones,
+        dtype=jnp.float32,
+        rngs: nnx.Rngs | None = None,
+    ):
         self.transform = transform
-        if isinstance(shape_or_val, (jax.Array, np.ndarray, int, float)):
+        if isinstance(shape_or_val, jax.Array | np.ndarray | int | float):
             self.scale_val = Const(shape_or_val)
         else:
             if rngs is None:
-                raise ValueError("rngs must be provided if shape_or_val is not a constant")
+                raise ValueError(
+                    "rngs must be provided if shape_or_val is not a constant"
+                )
             self.scale_val = nnx.Param(init(rngs.params(), shape_or_val, dtype))
 
     @property
@@ -106,20 +113,22 @@ class Scaling(Bijection):
 
 class Shift(Bijection):
     def __init__(
-            self,
-            shape_or_val: jax.Array | tuple[int, ...],
-            transform: tp.Callable = lambda x: x,
-            *,
-            init: ftp.Initializer = nnx.initializers.zeros,
-            dtype=jnp.float32,
-            rngs: nnx.Rngs | None = None,
-        ):
+        self,
+        shape_or_val: jax.Array | tuple[int, ...],
+        transform: tp.Callable = lambda x: x,
+        *,
+        init: ftp.Initializer = nnx.initializers.zeros,
+        dtype=jnp.float32,
+        rngs: nnx.Rngs | None = None,
+    ):
         self.transform = transform
-        if isinstance(shape_or_val, (jax.Array, np.ndarray, int, float)):
+        if isinstance(shape_or_val, jax.Array | np.ndarray | int | float):
             self.shift_val = Const(shape_or_val)
         else:
             if rngs is None:
-                raise ValueError("rngs must be provided if shape_or_val is not a constant")
+                raise ValueError(
+                    "rngs must be provided if shape_or_val is not a constant"
+                )
             self.shift_val = nnx.Param(init(rngs.params(), shape_or_val, dtype))
 
     @property
@@ -137,9 +146,9 @@ class Shift(Bijection):
         return x - self.shift, log_density
 
 
-
 class MetaLayer(Bijection):
     """Convenience class for operations that do not change density."""
+
     def __init__(self, forward: tp.Callable, reverse: tp.Callable, *, rngs=None):
         self._forward = forward
         self._reverse = reverse
@@ -161,18 +170,18 @@ class ExpandDims(MetaLayer):
 
 class ContFlowDiffrax(Bijection):
     def __init__(
-            self,
-            # (t, x, **kwargs) -> dx/dt, d(log_density)/dt
-            vf: tp.Callable,
-            *,
-            t_start: float = 0,
-            t_end: float = 1,
-            dt: float = 1/20,
-            solver: diffrax.AbstractSolver = diffrax.Tsit5(),
-            stepsize_controller: diffrax.AbstractStepSizeController = diffrax.ConstantStepSize(),
-            # switch to diffrax.BacksolveAdjoint() "adjoint sensitivity"; lower memory usage
-            adjoint: diffrax.AbstractAdjoint = diffrax.RecursiveCheckpointAdjoint(),
-        ):
+        self,
+        # (t, x, **kwargs) -> dx/dt, d(log_density)/dt
+        vf: tp.Callable,
+        *,
+        t_start: float = 0,
+        t_end: float = 1,
+        dt: float = 1 / 20,
+        solver: diffrax.AbstractSolver = diffrax.Tsit5(),
+        stepsize_controller: diffrax.AbstractStepSizeController = diffrax.ConstantStepSize(),  # noqa: E501
+        # switch to diffrax.BacksolveAdjoint() "adjoint sensitivity"; lower memory usage
+        adjoint: diffrax.AbstractAdjoint = diffrax.RecursiveCheckpointAdjoint(),
+    ):
         self.vf = vf
         self.t_start = t_start
         self.t_end = t_end
@@ -182,19 +191,19 @@ class ContFlowDiffrax(Bijection):
         self.adjoint = adjoint
 
     def solve_flow(
-            self,
-            x,
-            log_density,
-            *,
-            # integration parameters
-            t_start=None,
-            t_end=None,
-            dt=None,
-            saveat: diffrax.SaveAt | None = diffrax.SaveAt(t1=True),
-            max_steps: int | None = 4096,
-            # arguments to vector field
-            **kwargs,
-        ):
+        self,
+        x,
+        log_density,
+        *,
+        # integration parameters
+        t_start=None,
+        t_end=None,
+        dt=None,
+        saveat: diffrax.SaveAt | None = diffrax.SaveAt(t1=True),
+        max_steps: int | None = 4096,
+        # arguments to vector field
+        **kwargs,
+    ):
         if t_start is None:
             t_start = self.t_start
         if t_end is None:
@@ -227,39 +236,45 @@ class ContFlowDiffrax(Bijection):
         return x, log_density
 
     def reverse(self, x, log_density, **kwargs):
-        sol = self.solve_flow(x, log_density, t_start=self.t_end, t_end=self.t_start, dt=-self.dt, **kwargs)
+        sol = self.solve_flow(
+            x,
+            log_density,
+            t_start=self.t_end,
+            t_end=self.t_start,
+            dt=-self.dt,
+            **kwargs,
+        )
         (x,), (log_density,) = sol.ys
         return x, log_density
 
 
 class ContFlowRK4(Bijection):
     def __init__(
-            self,
-            # (t, x, **kwargs) -> dx/dt, d(log_density)/dt
-            vf: tp.Callable,
-            *,
-            t_start: float = 0,
-            t_end: float = 1,
-            dt: float = 1/20,
-        ):
+        self,
+        # (t, x, **kwargs) -> dx/dt, d(log_density)/dt
+        vf: tp.Callable,
+        *,
+        t_start: float = 0,
+        t_end: float = 1,
+        dt: float = 1 / 20,
+    ):
         self.vf = vf
         self.t_start = t_start
         self.t_end = t_end
         self.dt = dt
 
-
     def solve_flow(
-            self,
-            x,
-            log_density,
-            *,
-            # integration parameters
-            t_start=None,
-            t_end=None,
-            dt=None,
-            # arguments to vector field
-            **kwargs,
-        ):
+        self,
+        x,
+        log_density,
+        *,
+        # integration parameters
+        t_start=None,
+        t_end=None,
+        dt=None,
+        # arguments to vector field
+        **kwargs,
+    ):
         if t_start is None:
             t_start = self.t_start
         if t_end is None:
@@ -294,4 +309,11 @@ class ContFlowRK4(Bijection):
         return self.solve_flow(x, log_density, **kwargs)
 
     def reverse(self, x, log_density, **kwargs):
-        return self.solve_flow(x, log_density, t_start=self.t_end, t_end=self.t_start, dt=-self.dt, **kwargs)
+        return self.solve_flow(
+            x,
+            log_density,
+            t_start=self.t_end,
+            t_end=self.t_start,
+            dt=-self.dt,
+            **kwargs,
+        )

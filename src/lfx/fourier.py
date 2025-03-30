@@ -5,8 +5,8 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
-from .bijections import Bijection, Const
-from .utils import ShapeInfo
+from .bijections import Bijection
+from .utils import Const, ShapeInfo
 
 
 def fft_momenta(

@@ -1,8 +1,22 @@
 from functools import partial
 
+import flax.typing as ftp
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import nnx
+
+
+class Const(nnx.Variable):
+    pass
+
+
+# filter constants (above) and things wrapped in Frozen (defined below)
+FrozenFilter = nnx.Any(Const, nnx.PathContains("frozen"))
+
+
+def default_wrap(x, cls=nnx.Param):
+    return x if isinstance(x, nnx.Variable) else cls(x)
 
 
 @jax.jit
@@ -228,3 +242,25 @@ class ShapeInfo:
 jax.tree_util.register_pytree_node(
     ShapeInfo, ShapeInfo.tree_flatten, ShapeInfo.tree_unflatten
 )
+
+
+def noise_model(
+    rng: nnx.Rngs | ftp.PRNGKey,
+    model,
+    scale=1,
+    *filters,
+    noise_fn=jax.random.normal,
+):
+    """Add noise to all model parameters (matching filters).
+
+    This can be useful for testing purposes.
+    """
+    filter = nnx.Any(*filters) if filters else nnx.Param
+    rngs = rng if isinstance(rng, nnx.Rngs) else nnx.Rngs(rng)
+
+    graph, params, rest = nnx.split(model, filter, ...)
+    params = jax.tree.map(
+        lambda x: x + scale * noise_fn(rngs.sample(), x.shape),
+        params,
+    )
+    return nnx.merge(graph, params, rest)

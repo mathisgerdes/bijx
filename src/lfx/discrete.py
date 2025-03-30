@@ -5,7 +5,8 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
-from .bijections import Bijection, Const
+from .bijections import Bijection
+from .utils import Const
 
 
 def checker_mask(shape, parity: bool):
@@ -168,25 +169,26 @@ def apply_mrq_spline(
     return out, log_det
 
 
-class MonotoneRQSpline(nnx.Module):
+class MonotoneRQSpline(Bijection):
     """
-    Template for using apply_mrq_spline.
+    Monotone rational quadratic spline.
 
     Example:
     ```python
-    rngs = nnx.Rngs(0)
     knots = 10
+    x_dim = 5  # assume 1-dimensional for this class!
 
     spline = MonotoneRQSpline(
         knots=knots,
-        # dummy network
-        params_net=nnx.Linear(
-            32, 2 * MonotoneRQSpline.spline_param_count(knots), rngs=rngs),
+        # dummy network (in reality probably some network)
+        params_net=lambda spline_params: spline_params
     )
 
-    x  = jax.random.normal(rngs(), (15, 2))
-    cond = jax.random.normal(rngs(), (15, 32))
-    y, delta_log_prob = spline(x, cond)
+    x  = jax.random.uniform(rngs(), (15, x_dim))
+    log_prob = jnp.zeros((15,))
+
+    sline_params = jax.random.normal(rngs(), (15, x_dim * spline.spline_param_count))
+    y, log_prob = spline.forward(x, log_prob, spline_params=sline_params)
     ```
     """
 
@@ -201,34 +203,29 @@ class MonotoneRQSpline(nnx.Module):
         rngs: nnx.Rngs | None = None,
     ):
         self.knots = knots
-        self.params_net = params_net
         self.min_bin_width = min_bin_width
         self.min_bin_height = min_bin_height
         self.min_derivative = min_derivative
+        self.params_net = params_net
 
-    @staticmethod
-    def spline_param_count(knots):
-        return 3 * knots - 1
+    @property
+    def spline_param_count(self):
+        return 3 * self.knots - 1
 
-    @staticmethod
-    def spline_param_splits(knots):
-        return (knots, 2 * knots)
+    @property
+    def spline_param_splits(self):
+        return (self.knots, 2 * self.knots)
 
-    def __call__(self, x, cond, inverse=False):
-        eps = np.finfo(x.dtype).eps
-        x = jnp.where(x > 1.0, x - eps, x)
-        x = jnp.where(x < 0.0, x + eps, x)
+    def __call__(self, x, inverse=False, **kwargs):
+        params = self.params_net(**kwargs)
 
-        params = self.params_net(cond)
         shape = x.shape
         x = x.reshape(-1, x.shape[-1])
-        params = params.reshape(
-            x.shape[0], self.spline_param_count(self.knots) * x.shape[1]
-        )
+        params = params.reshape(x.shape[0], self.spline_param_count * x.shape[1])
 
         w, h, d = jnp.split(
             params,
-            self.spline_param_splits(self.knots),
+            self.spline_param_splits,
             axis=-1,
         )
 
@@ -246,3 +243,11 @@ class MonotoneRQSpline(nnx.Module):
         delta_log_density = -jnp.sum(delta_log_density, axis=-1)
 
         return x.reshape(shape), delta_log_density.reshape(shape[:-1])
+
+    def forward(self, x, log_density, **kwargs):
+        x, delta_log_density = self(x, **kwargs)
+        return x, log_density + delta_log_density
+
+    def reverse(self, x, log_density, **kwargs):
+        x, delta_log_density = self(x, inverse=True, **kwargs)
+        return x, log_density + delta_log_density

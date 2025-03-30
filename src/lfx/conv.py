@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
-from .bijections import Const
+from .utils import Const
 
 
 def conv_indices(shape: tuple[int, ...], return_flat=True, center=True):

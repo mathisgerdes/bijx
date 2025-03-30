@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
-from .bijections import Const
+from .utils import Const
 
 
 def rescale_range(val, val_range: tuple[float, float] | None):

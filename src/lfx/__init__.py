@@ -3,6 +3,7 @@ from ._version import __version__
 from .bijections import (
     Bijection,
     Chain,
+    ScanChain,
     ExpandDims,
     Frozen,
     Inverse,

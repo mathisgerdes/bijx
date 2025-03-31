@@ -56,6 +56,29 @@ class Chain(Bijection):
         return x, log_density
 
 
+class ScanChain(Bijection):
+
+    def __init__(self, stack):
+        self.stack = stack
+
+    def forward(self, x, log_density, **kwargs):
+        y, lp = nnx.scan(
+            lambda m, x_lp: m.forward(*x_lp, **kwargs),
+            in_axes=(0, nnx.Carry),
+            out_axes=nnx.Carry,
+        )(self.stack, (x, log_density))
+        return y, lp
+
+    def reverse(self, y, log_density, **kwargs):
+        x, lp = nnx.scan(
+            lambda m, x_lp: m.reverse(*x_lp, **kwargs),
+            in_axes=(0, nnx.Carry),
+            out_axes=nnx.Carry,
+            reverse=True,
+        )(self.stack, (y, log_density))
+        return x, lp
+
+
 class Frozen(Bijection):
     def __init__(self, bijection: Bijection):
         self.frozen = bijection

@@ -3,10 +3,38 @@ import jax.numpy as jnp
 from flax import nnx
 
 from .bijections import Bijection
-from .utils import default_wrap
+from .utils import ShapeInfo, default_wrap
 
 
-class GaussianCDF(Bijection):
+def sum_log_jac(x, log_density, log_jac):
+    """Sum divergence over event axes."""
+    event_dim = jnp.ndim(x) - jnp.ndim(log_density)
+    si = ShapeInfo(event_dim=event_dim, channel_dim=0)
+    _, si = si.process_event(jnp.shape(x))
+    return log_density + jnp.sum(log_jac, axis=si.event_axes)
+
+
+class OneDimensional(Bijection):
+
+    def log_jac(self, x, y, **kwargs):
+        raise NotImplementedError
+
+    def fwd(self, x, **kwargs):
+        raise NotImplementedError()
+
+    def rev(self, y, **kwargs):
+        raise NotImplementedError()
+
+    def forward(self, x, log_density, **kwargs):
+        y = self.fwd(x, **kwargs)
+        return y, sum_log_jac(x, log_density, -self.log_jac(x, y))
+
+    def reverse(self, y, log_density, **kwargs):
+        x = self.rev(y, **kwargs)
+        return x, sum_log_jac(x, log_density, self.log_jac(x, y))
+
+
+class GaussianCDF(OneDimensional):
     """Invertible map from [-inf, inf] to [0, 1] using Gaussian cdfs."""
 
     def __init__(
@@ -19,90 +47,81 @@ class GaussianCDF(Bijection):
         self.mean = default_wrap(init_mean)
         self.log_scale = default_wrap(init_log_scale)
 
-    def forward(self, x, logp):
+    def log_jac(self, x, y, **kwargs):
         loc = self.mean.value
-        scale = jnp.exp(self.log_scale)
-        y = jax.scipy.stats.norm.cdf(x, loc=loc, scale=scale)
-        log_jac = jax.scipy.stats.norm.logpdf(x, loc=loc, scale=scale)
+        scale = jnp.exp(self.log_scale.value)
+        return jax.scipy.stats.norm.logpdf(x, loc=loc, scale=scale)
 
-        return y, logp - log_jac
-
-    def reverse(self, y, logp):
+    def fwd(self, x, **kwargs):
         loc = self.mean.value
-        scale = jnp.exp(self.log_scale)
-        x = jax.scipy.stats.norm.ppf(y, loc=loc, scale=scale)
-        log_jac = jax.scipy.stats.norm.logpdf(x, loc=loc, scale=scale)
+        scale = jnp.exp(self.log_scale.value)
+        return jax.scipy.stats.norm.cdf(x, loc=loc, scale=scale)
 
-        return x, logp + log_jac
+    def rev(self, y, **kwargs):
+        loc = self.mean.value
+        scale = jnp.exp(self.log_scale.value)
+        return jax.scipy.stats.norm.ppf(y, loc=loc, scale=scale)
 
 
-class TanLayer(Bijection):
+class TanLayer(OneDimensional):
     """Invertible map from [0, 1] to [-inf, inf] using tan/arctan."""
 
-    def forward(self, x, log_density):
-        y = jnp.tan(jnp.pi * (x + 0.5))
-        jac = jnp.abs(jnp.pi * (1 + y**2))
-        return y, log_density - jnp.log(jac)
+    def log_jac(self, x, y, **kwargs):
+        return jnp.log(jnp.abs(jnp.pi * (1 + y**2)))
 
-    def reverse(self, y, log_density):
-        x = jnp.arctan(y) / jnp.pi + 0.5
-        jac = jnp.abs(jnp.pi * (1 + y**2))
-        return x, log_density + jnp.log(jac)
+    def fwd(self, x, **kwargs):
+        return jnp.tan(jnp.pi * (x + 0.5))
 
-
-def _sigmoid_inv(x):
-    return jnp.log(x / (1 - x))
+    def rev(self, y, **kwargs):
+        return jnp.arctan(y) / jnp.pi + 0.5
 
 
-class SigmoidLayer(Bijection):
+class SigmoidLayer(OneDimensional):
     """Invertible map from [-inf, inf] to [0, 1] using sigmoid."""
 
-    def forward(self, x, log_density):
-        y = nnx.sigmoid(x)
-        log_jac = jnp.log(y) + jnp.log(1 - y)
-        return y, log_density - log_jac
+    def log_jac(self, x, y):
+        return jnp.log(y) + jnp.log(1 - y)
 
-    def reverse(self, y, log_density):
-        x = _sigmoid_inv(y)
-        log_jac = jnp.log(y) + jnp.log(1 - y)
-        return x, log_density + log_jac
+    def fwd(self, x, **kwargs):
+        return nnx.sigmoid(x)
+
+    def rev(self, y, **kwargs):
+        return jnp.log(y / (1 - y))
 
 
-class TanhLayer(Bijection):
+class TanhLayer(OneDimensional):
     """Invertible map from [-inf, inf] to [-1, 1] using tanh."""
 
-    def forward(self, x, log_density):
-        y = jnp.tanh(x)
-        jac = jnp.abs(1 - y**2)
-        return y, log_density - jnp.log(jac)
+    def log_jac(self, x, y, **kwargs):
+        return jnp.log(jnp.abs(1 - y**2))
 
-    def reverse(self, y, log_density):
-        x = jnp.arctanh(y)
-        jac = jnp.abs(1 - y**2)
-        return x, log_density + jnp.log(jac)
+    def fwd(self, x, **kwargs):
+        return jnp.tanh(x)
+
+    def rev(self, y, **kwargs):
+        return jnp.arctanh(y)
 
 
-class BetaStretch(Bijection):
+class BetaStretch(OneDimensional):
     """Invertible map [0, 1] -> [0, 1] using beta function."""
 
     def __init__(self, a: nnx.Variable, *, rngs=None):
         self.a = a
 
-    def _log_jac(self, x):
+    def log_jac(self, x, y, **kwargs):
         a = self.a.value
-        log_jac = (
+        return (
             jnp.log(a)
-            + jnp.log(x ** (self.a - 1) * (1 - x) ** a + x**a * (1 - x) ** (a - 1))
+            + jnp.log(x ** (a - 1) * (1 - x) ** a + x**a * (1 - x) ** (a - 1))
             - 2 * jnp.log(x**a + (1 - x) ** a)
         )
-        return log_jac
 
-    def forward(self, x, log_density):
-        xa = x**self.a
-        y = xa / (xa + (1 - x) ** self.a)
-        return y, log_density - self._log_jac(x)
+    def fwd(self, x, **kwargs):
+        a = self.a.value
+        xa = x**a
+        return xa / (xa + (1 - x) ** a)
 
-    def reverse(self, y, log_density):
-        r = (y / (1 - y)) ** (1 / self.a.value)
-        x = r / (r + 1)
-        return x, log_density + self._log_jac(x)
+    def rev(self, y, **kwargs):
+        a = self.a.value
+        r = (y / (1 - y)) ** (1 / a)
+        return r / (r + 1)

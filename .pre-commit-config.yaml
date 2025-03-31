@@ -21,7 +21,7 @@ repos:
         "--fix",
         "--show-fixes",
         "--select=E,F,I,NPY,UP,N8,PT,SIM,ERA",
-        "--ignore=E203",
+        "--ignore=E203,ERA001",
       ]
       # Exclude __init__.py from F401 (unused import) checks and ipynb files
       exclude: ^.*/__init__\.py$|.*\.ipynb$

@@ -19,8 +19,11 @@ from .fourier import FreeTheoryScaling, SpectrumScaling, fft_momenta
 from .ode import ODESolver, DiffraxConfig, ContFlowRK4, ContFlowDiffrax
 from .one_dim import (
     BetaStretch,
+    GaussianCDF,
     SigmoidLayer,
+    TanhLayer,
     TanLayer,
+    OneDimensional,
 )
 from .rk4ode import odeint_rk4
 from .sampling import (

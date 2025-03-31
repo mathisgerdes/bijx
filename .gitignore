@@ -22,6 +22,8 @@ __pycache__/
 .vscode/
 .cursor/
 
+.ruff_cache/
+
 # Data
 /data/
 outputs/

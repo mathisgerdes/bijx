@@ -36,8 +36,8 @@ class Inverse(Bijection):
 
 
 class Chain(Bijection):
-    def __init__(self, bijections: list[Bijection]):
-        self.bijections = bijections
+    def __init__(self, *bijections: Bijection):
+        self.bijections = list(bijections)
 
     def forward(self, x, log_density, *, arg_list: list[dict] | None = None, **kwargs):
         if arg_list is None:

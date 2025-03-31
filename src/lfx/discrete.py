@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
+from jax_autovmap import auto_vmap
 
 from .bijections import Bijection
 from .utils import Const
@@ -216,12 +217,11 @@ class MonotoneRQSpline(Bijection):
     def spline_param_splits(self):
         return (self.knots, 2 * self.knots)
 
-    def __call__(self, x, inverse=False, **kwargs):
-        params = self.params_net(**kwargs)
-
+    @auto_vmap(x=1, params=1)
+    def __call__(self, x, params, inverse=False):
         shape = x.shape
-        x = x.reshape(-1, x.shape[-1])
-        params = params.reshape(x.shape[0], self.spline_param_count * x.shape[1])
+        x = x.reshape(1, x.shape[-1])
+        params = params.reshape(1, self.spline_param_count * x.shape[1])
 
         w, h, d = jnp.split(
             params,
@@ -242,12 +242,14 @@ class MonotoneRQSpline(Bijection):
         # add this to log_density
         delta_log_density = -jnp.sum(delta_log_density, axis=-1)
 
-        return x.reshape(shape), delta_log_density.reshape(shape[:-1])
+        return x.reshape(shape), delta_log_density.reshape(())
 
     def forward(self, x, log_density, **kwargs):
-        x, delta_log_density = self(x, **kwargs)
-        return x, log_density + delta_log_density
+        params = self.params_net(**kwargs)
+        x, delta_log_density = self(x, params)
+        return x, log_density + delta_log_density.reshape(log_density.shape)
 
     def reverse(self, x, log_density, **kwargs):
-        x, delta_log_density = self(x, inverse=True, **kwargs)
-        return x, log_density + delta_log_density
+        params = self.params_net(**kwargs)
+        x, delta_log_density = self(x, params, inverse=True)
+        return x, log_density + delta_log_density.reshape(log_density.shape)

@@ -61,21 +61,31 @@ class ScanChain(Bijection):
     def __init__(self, stack):
         self.stack = stack
 
+    def _forward(self, carry, variables, graph, **kwargs):
+        bijection = nnx.merge(graph, variables)
+        return bijection.forward(*carry, **kwargs), None
+
+    def _reverse(self, carry, variables, graph, **kwargs):
+        bijection = nnx.merge(graph, variables)
+        return bijection.reverse(*carry, **kwargs), None
+
     def forward(self, x, log_density, **kwargs):
-        y, lp = nnx.scan(
-            lambda m, x_lp: m.forward(*x_lp, **kwargs),
-            in_axes=(0, nnx.Carry),
-            out_axes=nnx.Carry,
-        )(self.stack, (x, log_density))
+        graph, variables = nnx.split(self.stack)
+        (y, lp), _ = jax.lax.scan(
+            partial(self._forward, graph=graph, **kwargs),
+            (x, log_density),
+            variables,
+        )
         return y, lp
 
     def reverse(self, y, log_density, **kwargs):
-        x, lp = nnx.scan(
-            lambda m, x_lp: m.reverse(*x_lp, **kwargs),
-            in_axes=(0, nnx.Carry),
-            out_axes=nnx.Carry,
+        graph, variables = nnx.split(self.stack)
+        (x, lp), _ = jax.lax.scan(
+            partial(self._reverse, graph=graph, **kwargs),
+            (y, log_density),
+            variables,
             reverse=True,
-        )(self.stack, (y, log_density))
+        )
         return x, lp
 
 

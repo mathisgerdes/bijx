@@ -135,3 +135,47 @@ def get_fourier_masks(real_shape):
                 imag_mask[e1 + (np.s_[s:],) + e2] = False
 
     return real_mask, imag_mask
+
+
+def get_fourier_duplicated(real_shape):
+    """Get indices of copied degrees of freedom in real FFT transform."""
+    rfft_shape = real_shape[:-1] + (real_shape[-1] // 2 + 1,)
+
+    edges = [[0] + ([s // 2] if s % 2 == 0 else []) for s in real_shape]
+    cp_start = [s // 2 + 1 for s in real_shape[:-1]]
+
+    cp_from = []
+    cp_to = []
+
+    # degrees of freedom are duplicated
+    for i, s in enumerate(cp_start):
+        for e1 in product(*edges[:i]):
+            for e2 in product(*edges[i + 1 :]):
+                cp_from.extend(
+                    [e1 + (-j % rfft_shape[i],) + e2 for j in range(s, rfft_shape[i])]
+                )
+                cp_to.extend([e1 + (j,) + e2 for j in range(s, rfft_shape[i])])
+
+    return np.array(cp_from), np.array(cp_to)
+
+
+def rfft_fold(rfft_values, real_shape):
+    # get independent d.o.f.
+    mr, mi = get_fourier_masks(real_shape)
+    vr = rfft_values.real[..., mr]
+    vi = rfft_values.imag[..., mi]
+    return jnp.concatenate([vr, vi], axis=-1)
+
+
+def rfft_unfold(values, real_shape):
+    # get full rfft output matrix from independent d.o.f.
+    mr, mi = get_fourier_masks(real_shape)
+    copy_from, copy_to = get_fourier_duplicated(real_shape)
+
+    vr, vi = jnp.split(values, [mr.sum()], axis=-1)
+    vi = 1j * vi
+    x = jnp.zeros(vi.shape[:-1] + mr.shape, dtype=vi.dtype)
+    x = x.at[..., mr].set(vr)
+    x = x.at[..., mi].add(vi)
+    x = x.at[(np.s_[...], *copy_to.T)].set(x[(np.s_[...], *copy_from.T)].conj())
+    return x

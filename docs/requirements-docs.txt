@@ -1,0 +1,14 @@
+# Sphinx and extensions
+sphinx
+furo
+myst-nb
+sphinx-autodoc-typehints
+sphinx-copybutton
+sphinx-autobuild
+
+# For notebooks and examples
+jupyter
+matplotlib
+jax
+jaxlib
+numpy

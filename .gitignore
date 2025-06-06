@@ -34,3 +34,8 @@ slurm-*.out
 
 # Generated version file
 _version.py
+
+# Documentation
+docs/build/
+docs/source/_autosummary/
+docs/.jupyter_cache/

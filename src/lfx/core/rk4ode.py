@@ -22,9 +22,6 @@ from jax import core, custom_derivatives
 from jax.experimental.ode import api_util, ravel_first_arg
 from jax.flatten_util import ravel_pytree
 
-# partially following
-# https://github.com/google/jax/blob/main/jax/experimental/ode.py
-
 
 def odeint_rk4(fun, y0, end_time, *args, step_size, start_time=0):
     """Fixed step-size Runge-Kutta implementation.

@@ -1,3 +1,7 @@
+"""
+Continuous-time vector fields.
+"""
+
 import typing as tp
 
 import diffrax
@@ -8,7 +12,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
-from .bijections import Bijection
+from .base import Bijection
 from .rk4ode import odeint_rk4
 
 

@@ -37,7 +37,7 @@ def default_wrap(
     if isinstance(x, nnx.Variable):
         return x
     elif isinstance(x, jax.Array | np.ndarray):
-        return cls(x)
+        return cls(jnp.asarray(x))
     elif is_shape(x):
         return init_cls(init_fn(rngs.params(), x))
     else:

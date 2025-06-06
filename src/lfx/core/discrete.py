@@ -7,7 +7,7 @@ from flax import nnx
 from jax_autovmap import auto_vmap
 
 from ..utils import Const
-from .bijections import Bijection
+from .base import Bijection
 
 
 def checker_mask(shape, parity: bool):

@@ -1,19 +1,15 @@
+from .core.linear import Scaling, Shift
+from .core.meta import ExpandDims, MetaLayer, Reshape, SqueezeDims
 from .nn import conv
-from .core import bijections, discrete, fourier, rk4ode
-from . import lattice, sampling, utils
+from .core import base, discrete, fourier, rk4ode
+from . import lattice, sampling, utils, gmm
 from ._version import __version__
-from .core.bijections import (
+from .core.base import (
     Bijection,
     Chain,
     ScanChain,
-    ExpandDims,
     Frozen,
     Inverse,
-    MetaLayer,
-    Reshape,
-    Scaling,
-    Shift,
-    SqueezeDims,
 )
 from .nn.conv import ConvSym, kernel_d4, kernel_equidist
 from .core.discrete import (

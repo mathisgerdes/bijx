@@ -6,7 +6,7 @@ import numpy as np
 from flax import nnx
 
 from ..utils import Const, ShapeInfo
-from .bijections import Bijection
+from .base import Bijection
 
 
 def fft_momenta(

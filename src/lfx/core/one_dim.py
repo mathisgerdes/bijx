@@ -1,9 +1,14 @@
+"""
+Parametric and parameter-free one-dimensional bijections.
+"""
+
 import jax
 import jax.numpy as jnp
 from flax import nnx
 
 from ..utils import ParamSpec, ShapeInfo, default_wrap
-from .bijections import Bijection, Scaling
+from .base import Bijection
+from .linear import Scaling
 
 
 def sum_log_jac(x, log_density, log_jac):
@@ -103,7 +108,7 @@ class TanhLayer(OneDimensional):
 
 
 class BetaStretch(OneDimensional):
-    """Invertible map [0, 1] -> [0, 1] using beta function.
+    """Invertible map [0, 1] -> [0, 1] inspired by beta CDFs.
 
     Note that this module does not check for valid range and a != 0.
     """

@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
-from .core.bijections import Bijection
+from .core.base import Bijection
 from .utils import ShapeInfo
 
 

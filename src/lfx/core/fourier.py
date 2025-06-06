@@ -5,12 +5,15 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
+from ..utils import Const, ShapeInfo
 from .bijections import Bijection
-from .utils import Const, ShapeInfo
 
 
 def fft_momenta(
-    shape: tuple[int, ...], reduced: bool = True, lattice: bool = False
+    shape: tuple[int, ...],
+    reduced: bool = True,
+    lattice: bool = False,
+    unit: bool = False,
 ) -> jax.Array:
     shape_factor = np.reshape(shape, [-1] + [1] * len(shape))
     if reduced:
@@ -20,6 +23,8 @@ def fft_momenta(
     # get frequencies divided by shape as large grid
     # ks[i] is k varying along axis i from 0 to L_i
     ks = np.mgrid[tuple(np.s_[:s] for s in shape)]
+    if unit:
+        return np.moveaxis(ks, 0, -1)
     ks = 2 * jnp.pi * ks / shape_factor
     if lattice:
         # with this true, (finite) lattice spectrum ~ 1 / m^2 + k^2

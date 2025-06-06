@@ -6,8 +6,8 @@ import numpy as np
 from flax import nnx
 from jax_autovmap import auto_vmap
 
+from ..utils import Const
 from .bijections import Bijection
-from .utils import Const
 
 
 def checker_mask(shape, parity: bool):

@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
-from .utils import Const
+from ..utils import Const
 
 
 def rescale_range(val, val_range: tuple[float, float] | None):
@@ -179,7 +179,10 @@ class PositionalEmbedding(Embedding):
 
     Args:
         feature_count: The number of features in the embedding.
-        scale: Scaling factor for the input values (default: 1000).
+        max_positions: Normalization factor controlling frequency scaling.
+            Larger values create lower frequency components with longer wavelengths.
+            Roughly, set to possible range of input values.
+        append_input: Whether to append the input value to the embedding.
         rngs: Random number generators.
     """
 
@@ -187,22 +190,26 @@ class PositionalEmbedding(Embedding):
         self,
         feature_count: int,
         *,
-        scale: float = 1000.0,
+        max_positions: float = 10000.0,
+        append_input: bool = False,
         rngs: nnx.Rngs | None = None,
     ):
         super().__init__(feature_count, rngs=rngs)
-        self.scale = scale
+        assert feature_count % 2 == 0, "feature_count must be even"
+        self.max_positions = max_positions
+        self.append_input = append_input
 
     def __call__(self, val):
-        t_shape = jnp.shape(val)
-        t = jnp.reshape(val, -1)
-        t *= self.scale
+        val_shape = jnp.shape(val)
+        val = jnp.reshape(val, -1)
 
         half_dim = self.feature_count // 2
-        emb = jnp.log(10000) / (half_dim - 1)
-        emb = jnp.exp((-emb) * jnp.arange(half_dim, dtype=t.dtype))
-        emb = t[:, None] * emb[None, :]
+        emb = np.log(self.max_positions) / (half_dim - 1)
+        emb = jnp.exp((-emb) * jnp.arange(half_dim, dtype=val.dtype))
+        emb = val[:, None] * emb[None, :]
         emb = jnp.concatenate([jnp.sin(emb), jnp.cos(emb)], axis=1)
-        if self.feature_count % 2 == 1:  # zero pad
-            emb = jnp.pad(emb, ((0, 0), (0, 1)), constant_values=0.0)
-        return emb.reshape(*t_shape, self.feature_count)
+        # if self.feature_count % 2 == 1:  # zero pad
+        #     emb = jnp.pad(emb, [[0, 0], [0, 1]])
+        if self.append_input:
+            emb = jnp.concatenate([emb, val[:, None]], axis=1)
+        return emb.reshape(*val_shape, self.feature_count + self.append_input)

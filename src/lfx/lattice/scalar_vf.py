@@ -7,9 +7,9 @@ import numpy as np
 from einops import rearrange
 from flax import nnx
 
-from . import embeddings
-from .conv import ConvSym, kernel_d4
-from .utils import ShapeInfo
+from ..nn import embeddings
+from ..nn.conv import ConvSym, kernel_d4
+from ..utils import ShapeInfo
 
 
 class NonlinearFeatures(nnx.Module):

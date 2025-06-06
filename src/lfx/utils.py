@@ -1,5 +1,6 @@
 from functools import partial
 
+import chex
 import flax.typing as ftp
 import jax
 import jax.numpy as jnp
@@ -13,10 +14,36 @@ class Const(nnx.Variable):
 
 # filter constants (above) and things wrapped in Frozen (defined below)
 FrozenFilter = nnx.Any(Const, nnx.PathContains("frozen"))
+ParamSpec = nnx.Variable | jax.Array | np.ndarray | chex.Shape | None
 
 
-def default_wrap(x, cls=nnx.Param):
-    return x if isinstance(x, nnx.Variable) else cls(x)
+def is_shape(x):
+    if not isinstance(x, tuple | list):
+        return False
+    return all(isinstance(dim, int) and dim > 0 for dim in x)
+
+
+def default_wrap(
+    x: ParamSpec,
+    default=None,
+    cls=nnx.Param,
+    init_fn=nnx.initializers.normal(),
+    init_cls=nnx.Param,
+    rngs: nnx.Rngs | None = None,
+):
+    if x is None:
+        x = default
+
+    if isinstance(x, nnx.Variable):
+        return x
+    elif isinstance(x, jax.Array | np.ndarray):
+        return cls(x)
+    elif is_shape(x):
+        return init_cls(init_fn(rngs.params(), x))
+    else:
+        raise ValueError(
+            f"Cannot process parameter specification of type {type(x)}: {x}"
+        )
 
 
 @jax.jit

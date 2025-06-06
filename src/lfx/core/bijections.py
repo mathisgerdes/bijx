@@ -4,10 +4,9 @@ from functools import partial
 import flax.typing as ftp
 import jax
 import jax.numpy as jnp
-import numpy as np
 from flax import nnx
 
-from .utils import Const, default_wrap
+from ..utils import ParamSpec, default_wrap
 
 
 class Bijection(nnx.Module):
@@ -103,60 +102,61 @@ class Frozen(Bijection):
 class Scaling(Bijection):
     def __init__(
         self,
-        shape_or_val: jax.Array | nnx.Variable | tuple[int, ...],
+        shape_or_val: ParamSpec,
         transform: tp.Callable = lambda x: x,
         *,
         init: ftp.Initializer = nnx.initializers.ones,
-        dtype=jnp.float32,
         rngs: nnx.Rngs | None = None,
     ):
         self.transform = transform
-        if isinstance(shape_or_val, tuple):
-            self.scale_val = nnx.Param(init(rngs.params(), shape_or_val, dtype))
-        else:
-            self.scale_val = default_wrap(shape_or_val, Const)
+        self.scale_val = default_wrap(shape_or_val, init_fn=init, rngs=rngs)
 
     @property
     def scale(self):
-        try:
-            scale = self.scale_val.value
-        except AttributeError:
-            scale = self.scale_val
+        scale = self.scale_val.value
         return self.transform(scale)
 
+    def _broadcast_shapes(self, x, log_density):
+        scale = jnp.broadcast_to(self.scale, x.shape)
+        batch_dim = jnp.ndim(log_density)
+        assert jnp.shape(x)[:batch_dim] == jnp.shape(
+            log_density
+        ), "batch dimensions of x and log_density must match"
+        data_dim = jnp.ndim(x) - batch_dim
+        data_axes = tuple(range(batch_dim, batch_dim + data_dim))
+        assert (
+            x.shape[batch_dim:] == scale.shape[batch_dim:]
+        ), "scaling must not change data shape"
+        log_jac = jnp.sum(jnp.log(jnp.abs(scale)), axis=data_axes)
+        assert (
+            log_jac.shape == log_density.shape[:batch_dim]
+        ), "log_jac must have same batch dimensions as log_density"
+        return scale, log_jac
+
     def forward(self, x, log_density, **kwargs):
-        return x * self.scale, log_density - jnp.sum(jnp.log(jnp.abs(self.scale)))
+        scale, log_jac = self._broadcast_shapes(x, log_density)
+        return x * scale, log_density - log_jac
 
     def reverse(self, x, log_density, **kwargs):
-        return x / self.scale, log_density + jnp.sum(jnp.log(jnp.abs(self.scale)))
+        scale, log_jac = self._broadcast_shapes(x, log_density)
+        return x / scale, log_density + log_jac
 
 
 class Shift(Bijection):
     def __init__(
         self,
-        shape_or_val: jax.Array | tuple[int, ...],
+        shape_or_val: ParamSpec,
         transform: tp.Callable = lambda x: x,
         *,
         init: ftp.Initializer = nnx.initializers.zeros,
-        dtype=jnp.float32,
         rngs: nnx.Rngs | None = None,
     ):
         self.transform = transform
-        if isinstance(shape_or_val, jax.Array | np.ndarray | int | float):
-            self.shift_val = Const(shape_or_val)
-        else:
-            if rngs is None:
-                raise ValueError(
-                    "rngs must be provided if shape_or_val is not a constant"
-                )
-            self.shift_val = nnx.Param(init(rngs.params(), shape_or_val, dtype))
+        self.shift_val = default_wrap(shape_or_val, init_fn=init, rngs=rngs)
 
     @property
     def shift(self):
-        try:
-            shift = self.shift_val.value
-        except AttributeError:
-            shift = self.shift_val
+        shift = self.shift_val.value
         return self.transform(shift)
 
     def forward(self, x, log_density, **kwargs):
@@ -164,6 +164,9 @@ class Shift(Bijection):
 
     def reverse(self, x, log_density, **kwargs):
         return x - self.shift, log_density
+
+
+# Meta transformations (shape-only)
 
 
 class MetaLayer(Bijection):

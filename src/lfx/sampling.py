@@ -7,10 +7,11 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
-from .bijections import Bijection
+from .core.bijections import Bijection
+from .utils import ShapeInfo
 
 
-class Prior(nnx.Module):
+class Distribution(nnx.Module):
     def __init__(self, rngs: nnx.Rngs | None = None):
         self.rngs = rngs
 
@@ -36,10 +37,11 @@ class Prior(nnx.Module):
         raise NotImplementedError
 
 
-class ArrayPrior(Prior):
+class ArrayPrior(Distribution):
 
     def __init__(self, event_shape: tuple[int, ...], rngs: nnx.Rngs | None = None):
         self.event_shape = event_shape
+        self.shape_info = ShapeInfo(event_shape=event_shape)
         self.rngs = rngs
 
     @property
@@ -52,10 +54,10 @@ class ArrayPrior(Prior):
 
     @property
     def event_axes(self):
-        return tuple(range(-1, -self.event_dim - 1, -1))
+        return self.shape_info.event_axes
 
     def get_batch_shape(self, x: ftp.ArrayPytree) -> tuple[int, ...]:
-        return x.shape[: -self.event_dim]
+        return self.shape_info.process_event(x.shape)[0]
 
 
 class IndependentNormal(ArrayPrior):
@@ -94,9 +96,9 @@ class IndependentUniform(ArrayPrior):
         return logp
 
 
-class Sampler(Prior):
+class Sampler(Distribution):
 
-    def __init__(self, prior: Prior, bijection: Bijection):
+    def __init__(self, prior: Distribution, bijection: Bijection):
         super().__init__(prior.rngs)
         self.prior = prior
         self.bijection = bijection
@@ -167,8 +169,8 @@ class BufferedSampler(Sampler):
 
 
 # independent Metropolis-Hastings
-# reason for not using blackjax.irmh here:
-# we produce log-likelihoods at same time as samples
+
+
 @flax.struct.dataclass
 class IMHState:
     position: flax.typing.ArrayPytree
@@ -189,6 +191,9 @@ class IMH(nnx.Module):
 
     Roughly modeled after blackjax API, but note that the sampler is
     expected to return "position" and proposal log-probabilities.
+
+    Note: difference to blackjax.irmh is that we produce log-likelihoods
+    at same time as samples
     """
 
     def __init__(self, sampler: Sampler, target_log_prob: tp.Callable):

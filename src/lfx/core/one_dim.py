@@ -2,8 +2,8 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from .bijections import Bijection
-from .utils import ShapeInfo, default_wrap
+from ..utils import ParamSpec, ShapeInfo, default_wrap
+from .bijections import Bijection, Scaling
 
 
 def sum_log_jac(x, log_density, log_jac):
@@ -39,13 +39,13 @@ class GaussianCDF(OneDimensional):
 
     def __init__(
         self,
-        init_log_scale: jax.Array | nnx.Variable = jnp.zeros(()),
-        init_mean: jax.Array | nnx.Variable = jnp.zeros(()),
+        init_log_scale: ParamSpec = jnp.zeros(()),
+        init_mean: ParamSpec = jnp.zeros(()),
         *,
         rngs: nnx.Rngs = None,
     ):
-        self.mean = default_wrap(init_mean)
-        self.log_scale = default_wrap(init_log_scale)
+        self.mean = default_wrap(init_mean, rngs=rngs)
+        self.log_scale = default_wrap(init_log_scale, rngs=rngs)
 
     def log_jac(self, x, y, **kwargs):
         loc = self.mean.value
@@ -103,10 +103,13 @@ class TanhLayer(OneDimensional):
 
 
 class BetaStretch(OneDimensional):
-    """Invertible map [0, 1] -> [0, 1] using beta function."""
+    """Invertible map [0, 1] -> [0, 1] using beta function.
 
-    def __init__(self, a: nnx.Variable, *, rngs=None):
-        self.a = a
+    Note that this module does not check for valid range and a != 0.
+    """
+
+    def __init__(self, a: ParamSpec, *, rngs=None):
+        self.a = default_wrap(a, rngs=rngs)
 
     def log_jac(self, x, y, **kwargs):
         a = self.a.value

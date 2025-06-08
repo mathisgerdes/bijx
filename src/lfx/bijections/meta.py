@@ -7,7 +7,7 @@ from functools import partial
 
 import jax.numpy as jnp
 
-from lfx.core.base import Bijection
+from .base import Bijection
 
 
 class MetaLayer(Bijection):

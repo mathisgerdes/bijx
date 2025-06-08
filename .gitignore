@@ -24,10 +24,12 @@ __pycache__/
 
 .ruff_cache/
 
+.hypothesis/
+
 # Data
-/data/
+data/
 outputs/
-/figs/
+figs/
 .DS_Store
 
 slurm-*.out

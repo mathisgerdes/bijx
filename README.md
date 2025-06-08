@@ -49,35 +49,33 @@ This approach, facilitated by the `utils.ParamSpec` type hint and `utils.default
 
 ```
 lfx/
-├── __init__.py                 # Main package exports (pulls from core, nn, sampling, etc.)
-├── _version.py
-├── utils.py                    # Truly generic, framework-agnostic utilities
-├── sampling.py                 # Base distribution samplers, general sampling tools
+├── __init__.py                 # Main package exports (simplified structure)
+├── utils.py                    # Utilities
+├── distributions.py
+├── fourier.py
+├── mcmc.py
+├── samplers.py
+├── solvers.py
 │
-├── core/                       # Core normalizing flow architectural components
-│   ├── __init__.py             # Exports from this module (Bijection, specific flows, etc.)
-│   ├── base.py                 # Abstract Bijection class, other base NF constructs
-│   ├── transforms_1d.py        # Concrete 1D bijections (Affine, Splines, etc.)
-│   ├── spectral.py             # Spectral domain bijections (SpectrumScaling)
-│   ├── coupling.py             # Coupling layer architecture (uses bijections from transforms_1d)
-│   ├── autoregressive.py       # Autoregressive flow architecture (uses bijections)
-│   ├── # other_flow_arch.py    # E.g., for Planar, Glow-specific components if not in coupling
-│   └── continuous/
-│       ├── __init__.py
-│       ├── base.py             # Base logic for continuous NFs (e.g., Neural ODE interface)
-│       └── solvers.py          # ODE solvers (e.g., RK4)
+├── bijections/                 # All bijection-related code
+│   ├── __init__.py
+│   ├── base.py                 # Bijection, Chain, ...
+│   ├── coupling.py             # AffineCoupling
+│   ├── fourier.py              # SpectrumScaling, FreeTheoryScaling, ToFourierData
+│   ├── linear.py               # Scaling, Shift
+│   ├── meta.py                 # Reshape, ExpandDims
+│   ├── onedim.py               # GaussianCDF, TanhLayer, etc.
+│   ├── splines.py
+│   └── continuous.py           # ContFlowDiffrax, ContFlowRK4
 │
-├── nn/                         # Neural network building blocks (conditioners, etc.)
+├── nn/
 │   ├── __init__.py
 │   ├── simple_nets.py
 │   ├── conv.py
 │   └── embeddings.py
 │
-└── applications/
-    └── lattice/
-        ├── __init__.py
-        ├── fourier_ops.py      # LFT-specific Fourier ops (fft_momenta, masks)
-        ├── bijections.py       # LFT-specific bijections (FreeTheoryScaling - uses core.spectral)
-        ├── scalar_theory.py    # LFT scalar field theory models
-        └── utils.py            # LFT-specific utilities
+└── lattice/                    # Lattice field theory applications
+    ├── __init__.py
+    ├── scalar_vf.py
+    └── scalartheory.py
 ```

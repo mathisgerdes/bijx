@@ -8,7 +8,6 @@ from flax import nnx
 
 from ..utils import ParamSpec, ShapeInfo, default_wrap
 from .base import Bijection
-from .linear import Scaling
 
 
 def sum_log_jac(x, log_density, log_jac):
@@ -133,3 +132,13 @@ class BetaStretch(OneDimensional):
         a = self.a.value
         r = (y / (1 - y)) ** (1 / a)
         return r / (r + 1)
+
+__all__ = [
+    "sum_log_jac",
+    "OneDimensional",
+    "GaussianCDF",
+    "TanLayer",
+    "SigmoidLayer",
+    "TanhLayer",
+    "BetaStretch",
+]

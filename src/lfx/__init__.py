@@ -1,27 +1,39 @@
-from .core.linear import Scaling, Shift
-from .core.meta import ExpandDims, MetaLayer, Reshape, SqueezeDims
-from .nn import conv
-from .core import base, discrete, fourier, rk4ode
-from . import lattice, sampling, utils, gmm
+from . import (
+    bijections,
+    distributions,
+    fourier,
+    lattice,
+    mcmc,
+    nn,
+    samplers,
+    solvers,
+    utils,
+)
 from ._version import __version__
-from .core.base import (
+
+from .bijections import (
     Bijection,
     Chain,
     ScanChain,
     Frozen,
     Inverse,
-)
-from .nn.conv import ConvSym, kernel_d4, kernel_equidist
-from .core.discrete import (
+    ContFlowDiffrax,
+    ContFlowRK4,
     AffineCoupling,
+    checker_mask,
+    SpectrumScaling,
+    FreeTheoryScaling,
+    ToFourierData,
+    Scaling,
+    Shift,
+    MetaLayer,
+    ExpandDims,
+    SqueezeDims,
+    Reshape,
     MonotoneRQSpline,
     apply_mrq_spline,
-    checker_mask,
 )
-from .nn.embeddings import KernelFourier, KernelGauss, KernelLin, KernelReduced
-from .core.fourier import FreeTheoryScaling, SpectrumScaling, fft_momenta
-from .core.ode import ODESolver, DiffraxConfig, ContFlowRK4, ContFlowDiffrax
-from .core.one_dim import (
+from .bijections.onedim import (
     BetaStretch,
     GaussianCDF,
     SigmoidLayer,
@@ -29,23 +41,34 @@ from .core.one_dim import (
     TanLayer,
     OneDimensional,
 )
-from .core.rk4ode import odeint_rk4
-from .sampling import (
+from .distributions import (
+    Distribution,
     ArrayPrior,
-    BufferedSampler,
     IndependentNormal,
     IndependentUniform,
-    Distribution,
-    Sampler,
+    DiagonalGMM,
 )
+from .fourier import fft_momenta, FFTRep, FourierData, FourierMeta
 from .lattice.scalar_vf import (
     ConcatFeatures,
+    DivFeatures,
     FourierFeatures,
     NonlinearFeatures,
     Phi4CNF,
     PolynomialFeatures,
 )
+from .mcmc import IMH, IMHState, IMHInfo
+from .nn.conv import ConvSym, kernel_d4, kernel_equidist
+from .nn.embeddings import (
+    KernelFourier,
+    KernelGauss,
+    KernelLin,
+    KernelReduced,
+    PositionalEmbedding,
+)
 from .nn.simple_nets import SimpleConvNet, SimpleResNet
+from .samplers import Sampler, BufferedSampler
+from .solvers import odeint_rk4, DiffraxConfig, ODESolver
 from .utils import (
     Const,
     FrozenFilter,
@@ -70,6 +93,7 @@ __all__ = [
     "Inverse",
     "MetaLayer",
     "Reshape",
+    "ToFourierData",
     "Scaling",
     "Shift",
     "SqueezeDims",
@@ -82,6 +106,11 @@ __all__ = [
     "MonotoneRQSpline",
     "apply_mrq_spline",
     "checker_mask",
+    # Distributions
+    "ArrayPrior",
+    "IndependentNormal",
+    "IndependentUniform",
+    "DiagonalGMM",
     # Embeddings
     "KernelFourier",
     "KernelGauss",
@@ -91,11 +120,19 @@ __all__ = [
     "FreeTheoryScaling",
     "SpectrumScaling",
     "fft_momenta",
+    "FFTRep",
+    "FourierData",
+    "FourierMeta",
+    # MCMC
+    "IMH",
+    "IMHState",
+    "IMHInfo",
     # ODE solvers
     "ODESolver",
     "DiffraxConfig",
     "ContFlowRK4",
     "ContFlowDiffrax",
+    "odeint_rk4",
     # One-dimensional transforms
     "BetaStretch",
     "GaussianCDF",
@@ -103,15 +140,11 @@ __all__ = [
     "TanhLayer",
     "TanLayer",
     "OneDimensional",
-    # RK4 ODE integration
-    "odeint_rk4",
-    # Sampling/distributions
-    "ArrayPrior",
+    # Sampling
     "BufferedSampler",
-    "IndependentNormal",
-    "IndependentUniform",
     # Lattice field features
     "ConcatFeatures",
+    "DivFeatures",
     "FourierFeatures",
     "NonlinearFeatures",
     "Phi4CNF",

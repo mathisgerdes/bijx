@@ -23,14 +23,17 @@ class NonlinearFeatures(nnx.Module):
         """Base class for non-linear feature mappings."""
         self.out_channel_size = out_channel_size
 
-    def apply_feature_map(self, inputs):
+    def apply_feature_map(self, inputs, **kwargs):
         raise NotImplementedError
 
-    def __call__(self, inputs, local_coupling, flatten_features=True):
+    def __call__(
+        self, inputs, local_coupling, flatten_features=True, mask=None, **kwargs
+    ):
         # Compute divergence using local couplings (W_xx part of conv kernel)
         # Feature map is exclusively site-wise
         orig_channels = inputs.shape[-1]
-        inputs, bwd = jax.vjp(self.apply_feature_map, inputs)
+        apply = partial(self.apply_feature_map, **kwargs)
+        inputs, bwd = jax.vjp(apply, inputs)
 
         if flatten_features:
             local_coupling = local_coupling.reshape(orig_channels, orig_channels, -1)
@@ -39,7 +42,7 @@ class NonlinearFeatures(nnx.Module):
         cotangent_reshape = (*inputs.shape[:-2], 1, 1)
         cotangent = jnp.tile(local_coupling[idc, idc], cotangent_reshape)
 
-        (inputs_grad,) = bwd(cotangent)
+        (inputs_grad,) = bwd(cotangent * jnp.expand_dims(mask, (-1, -2)))
         divergence = jnp.sum(inputs_grad, np.arange(1, inputs_grad.ndim))
 
         if flatten_features:

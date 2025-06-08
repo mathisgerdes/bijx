@@ -8,8 +8,8 @@ import flax.typing as ftp
 import jax.numpy as jnp
 from flax import nnx
 
-from lfx.core.base import Bijection
-from lfx.utils import ParamSpec, default_wrap
+from ..utils import ParamSpec, default_wrap
+from .base import Bijection
 
 
 class Scaling(Bijection):

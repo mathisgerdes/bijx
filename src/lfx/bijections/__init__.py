@@ -4,12 +4,12 @@ Bijections package.
 
 from .base import Bijection, Chain, ScanChain, Frozen, Inverse
 from .continuous import ContFlowDiffrax, ContFlowRK4
-from .coupling import AffineCoupling, checker_mask
+from .coupling import AffineCoupling, checker_mask, ModuleReconstructor
 from .fourier import SpectrumScaling, FreeTheoryScaling, ToFourierData
 from .linear import Scaling, Shift
 from .meta import MetaLayer, ExpandDims, SqueezeDims, Reshape
 from .onedim import *
-from .splines import MonotoneRQSpline, apply_mrq_spline
+from .splines import MonotoneRQSpline, rational_quadratic_spline
 
 __all__ = [
     # Base classes
@@ -24,6 +24,7 @@ __all__ = [
     # Coupling layers
     "AffineCoupling",
     "checker_mask",
+    "ModuleReconstructor",
     # Fourier-space bijections
     "SpectrumScaling",
     "FreeTheoryScaling",
@@ -38,5 +39,5 @@ __all__ = [
     "Reshape",
     # Splines
     "MonotoneRQSpline",
-    "apply_mrq_spline",
+    "rational_quadratic_spline",
 ]

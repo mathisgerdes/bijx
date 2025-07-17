@@ -28,10 +28,10 @@ class Sampler(Distribution):
         x, log_density = self.bijection.forward(x, log_density, **kwargs)
         return x, log_density
 
-    def log_prob(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
+    def log_density(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
         log_density = jnp.zeros(self.prior.get_batch_shape(x))
         x, delta = self.bijection.reverse(x, log_density)
-        return self.prior.log_prob(x, **kwargs) - delta
+        return self.prior.log_density(x, **kwargs) - delta
 
 
 class BufferedSampler(Sampler):
@@ -74,5 +74,5 @@ class BufferedSampler(Sampler):
 
         return sample
 
-    def log_prob(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
-        return self.sampler.log_prob(x, **kwargs)
+    def log_density(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
+        return self.sampler.log_density(x, **kwargs)

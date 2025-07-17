@@ -13,156 +13,212 @@ from jax_autovmap import auto_vmap
 from .base import Bijection
 
 
-def apply_mrq_spline(
-    x,
-    w,
-    h,
-    d,
+@auto_vmap(inputs=1, bin_widths=2, bin_heights=2, knot_slopes=2)
+def rational_quadratic_spline(
+    inputs,
+    bin_widths,
+    bin_heights,
+    knot_slopes,
     *,
     inverse=False,
     min_bin_width=1e-3,
     min_bin_height=1e-3,
-    min_derivative=1e-3,
+    min_slope=1e-3,
 ):
-    # following arxiv: [1906.04032]
-    # assumption: x.shape = (n,), others are (n, *)
-    knots = w.shape[-1]
+    """Apply monotonic rational quadratic spline transformation.
 
-    w = nnx.softmax(w)
-    h = nnx.softmax(h)
+    Following arXiv:1906.04032.
+    Assumes inputs.shape = (..., n), parameters are (..., n, num_bins).
+    """
+    num_bins = bin_widths.shape[-1]
 
-    w = min_bin_width + (1 - min_bin_width * knots) * w
-    h = min_bin_height + (1 - min_bin_height * knots) * h
+    # Normalize widths and heights using softmax
+    bin_widths = nnx.softmax(bin_widths, axis=-1)
+    bin_heights = nnx.softmax(bin_heights, axis=-1)
 
-    # knots
-    xs = jnp.pad(jnp.cumsum(w, -1), [(0, 0)] * (w.ndim - 1) + [(1, 0)])
-    ys = jnp.pad(jnp.cumsum(h, -1), [(0, 0)] * (h.ndim - 1) + [(1, 0)])
+    # Enforce minimum bin size
+    bin_widths = min_bin_width + (1 - min_bin_width * num_bins) * bin_widths
+    bin_heights = min_bin_height + (1 - min_bin_height * num_bins) * bin_heights
 
-    # derivatives
-    beta = np.log(2) / (1 - min_derivative)
-    deltas = min_derivative + nnx.softplus(beta * d) / beta
-
-    @jax.vmap
-    def _index(a, k):
-        return a[k]
-
-    if inverse:
-        k = jax.vmap(partial(jnp.searchsorted, side="right"))(ys, x) - 1
-    else:
-        k = jax.vmap(partial(jnp.searchsorted, side="right"))(xs, x) - 1
-
-    x_k = _index(xs, k)
-    x_diff = _index(w, k)
-    y_k = _index(ys, k)
-    d_k = _index(deltas, k)
-    y_diff = _index(h, k)
-    d_k1 = _index(deltas, k + 1)
-
-    s_k = y_diff / x_diff
-
-    if inverse:
-        a = (x - y_k) * (d_k + d_k1 - 2 * s_k) + y_diff * (s_k - d_k)
-        b = y_diff * d_k - (x - y_k) * (d_k + d_k1 - 2 * s_k)
-        c = -s_k * (x - y_k)
-
-        discriminant = b**2 - 4 * a * c
-
-        root = (2 * c) / (-b - jnp.sqrt(discriminant))
-        outputs = root * x_diff + x_k
-
-        # density
-        r1r = root * (1 - root)
-        denominator = s_k + ((d_k + d_k1 - 2 * s_k) * r1r)
-        derivative_numerator = s_k**2 * (
-            d_k1 * root**2 + 2 * s_k * r1r + d_k * (1 - root) ** 2
-        )
-        log_det = jnp.log(derivative_numerator) - 2 * jnp.log(denominator)
-
-        return outputs, -log_det
-
-    xi = (x - x_k) / x_diff
-
-    alpha = s_k * xi**2 + d_k * xi * (1 - xi)
-    beta = s_k + (d_k1 + d_k - 2 * s_k) * xi * (1 - xi)
-
-    out = y_k + y_diff * alpha / beta
-
-    derivative_numerator = s_k**2 * (
-        d_k1 * xi**2 + 2 * s_k * xi * (1 - xi) + d_k * (1 - xi) ** 2
+    # Compute knot positions (cumulative sum gives knot positions)
+    knot_x = jnp.pad(
+        jnp.cumsum(bin_widths, -1),
+        [(0, 0)] * (bin_widths.ndim - 1) + [(1, 0)],
+        constant_values=0,
     )
-    log_det = jnp.log(derivative_numerator) - 2 * jnp.log(beta)
-    return out, log_det
+    knot_y = jnp.pad(
+        jnp.cumsum(bin_heights, -1),
+        [(0, 0)] * (bin_heights.ndim - 1) + [(1, 0)],
+        constant_values=0,
+    )
+
+    # Ensure positive slopes using softplus for internal knots
+    softplus_scale = np.log(2) / (1 - min_slope)
+    internal_slopes = (
+        min_slope + nnx.softplus(softplus_scale * knot_slopes) / softplus_scale
+    )
+
+    # Pad with 1s for boundary slopes to match linear tails
+    padding = [(0, 0)] * (internal_slopes.ndim - 1) + [(1, 1)]
+    slopes = jnp.pad(internal_slopes, padding, constant_values=1.0)
+
+    # Handle inputs outside the [0, 1] spline domain,
+    # where the transform is the identity.
+    in_bounds = (inputs >= 0) & (inputs <= 1)
+    # Clamp inputs for internal calculations to avoid NaNs.
+    inputs_clipped = jnp.clip(inputs, 0, 1)
+
+    # Helper function for advanced indexing over the batch dimension
+    @jax.vmap
+    def get_indexed_values(array, indices):
+        return array[indices]
+
+    # Find which bin each input falls into, using the clipped inputs.
+    if inverse:
+        bin_idx = (
+            jax.vmap(partial(jnp.searchsorted, side="right"))(knot_y, inputs_clipped)
+            - 1
+        )
+    else:
+        bin_idx = (
+            jax.vmap(partial(jnp.searchsorted, side="right"))(knot_x, inputs_clipped)
+            - 1
+        )
+
+    # Get bin boundaries and slopes for each input
+    left_knot_x = get_indexed_values(knot_x, bin_idx)
+    bin_width = get_indexed_values(bin_widths, bin_idx)
+    left_knot_y = get_indexed_values(knot_y, bin_idx)
+    left_slope = get_indexed_values(slopes, bin_idx)
+    bin_height = get_indexed_values(bin_heights, bin_idx)
+    right_slope = get_indexed_values(slopes, bin_idx + 1)
+
+    # Compute bin slope (average rise over run)
+    bin_slope = bin_height / bin_width
+
+    if inverse:
+        # Solve quadratic equation for inverse transform
+        y_offset = inputs_clipped - left_knot_y
+
+        quad_a = y_offset * (left_slope + right_slope - 2 * bin_slope) + bin_height * (
+            bin_slope - left_slope
+        )
+        quad_b = bin_height * left_slope - y_offset * (
+            left_slope + right_slope - 2 * bin_slope
+        )
+        quad_c = -bin_slope * y_offset
+
+        discriminant = quad_b**2 - 4 * quad_a * quad_c
+        normalized_pos = (2 * quad_c) / (-quad_b - jnp.sqrt(discriminant))
+        outputs_spline = normalized_pos * bin_width + left_knot_x
+
+        # Compute log determinant for the forward transform dy/dx
+        pos_complement = normalized_pos * (1 - normalized_pos)
+        denominator = bin_slope + (
+            (left_slope + right_slope - 2 * bin_slope) * pos_complement
+        )
+        numerator = bin_slope**2 * (
+            right_slope * normalized_pos**2
+            + 2 * bin_slope * pos_complement
+            + left_slope * (1 - normalized_pos) ** 2
+        )
+        log_det_spline = jnp.log(numerator) - 2 * jnp.log(denominator)
+
+        # For the inverse transform, we need -log_det(dy/dx)
+        log_det = -log_det_spline
+
+    else:  # Forward transform
+        normalized_pos = (inputs_clipped - left_knot_x) / bin_width
+
+        numerator_term = bin_slope * normalized_pos**2 + left_slope * normalized_pos * (
+            1 - normalized_pos
+        )
+        denominator_term = bin_slope + (
+            right_slope + left_slope - 2 * bin_slope
+        ) * normalized_pos * (1 - normalized_pos)
+        outputs_spline = left_knot_y + bin_height * numerator_term / denominator_term
+
+        derivative_numerator = bin_slope**2 * (
+            right_slope * normalized_pos**2
+            + 2 * bin_slope * normalized_pos * (1 - normalized_pos)
+            + left_slope * (1 - normalized_pos) ** 2
+        )
+        log_det = jnp.log(derivative_numerator) - 2 * jnp.log(denominator_term)
+
+    # For out-of-bounds inputs, the transform is the identity.
+    # The output is the input, and the log_det is 0.
+    outputs = jnp.where(in_bounds, outputs_spline, inputs)
+    final_log_det = jnp.where(in_bounds, log_det, 0.0)
+
+    return outputs, final_log_det
 
 
 class MonotoneRQSpline(Bijection):
-    """
-    Monotone rational quadratic spline.
-
-    Assumptions:
-    - x (input) is 1-dimensional.
-    - parameters returned by `params_net` has the same batch dimensions as x;
-      both vmap'ed together.
-
-    Example:
-    ```python
-    knots = 10
-    x_dim = 5  # assume 1-dimensional for this class!
-
-    spline = MonotoneRQSpline(
-        knots=knots,
-        # dummy network (in reality probably some network)
-        params_net=lambda spline_params: spline_params
-    )
-
-    x  = jax.random.uniform(rngs(), (15, x_dim))
-    log_prob = jnp.zeros((15,))
-    ```
-    """
-
     def __init__(
         self,
-        knots: int,
-        params_net: nnx.Module,
+        in_features,
+        knots,
         *,
-        min_bin_width: float = 1e-3,
-        min_bin_height: float = 1e-3,
-        min_derivative: float = 1e-3,
-        rngs: nnx.Rngs | None = None,
+        min_bin_width=1e-3,
+        min_bin_height=1e-3,
+        min_slope=1e-3,
+        widths_init=nnx.initializers.normal(),
+        heights_init=nnx.initializers.normal(),
+        slopes_init=nnx.initializers.normal(),
+        rngs: nnx.Rngs,
     ):
-        self.knots = knots
-        self.params_net = params_net
+        """
+        Monotone rational quadratic spline.
+
+        Assume input is 1-dimensional.
+        """
+
+        widths = widths_init(rngs.params(), (in_features, knots))
+        heights = heights_init(rngs.params(), (in_features, knots))
+        slopes = slopes_init(rngs.params(), (in_features, knots - 1))
+
+        self.widths = nnx.Param(widths)
+        self.heights = nnx.Param(heights)
+        self.slopes = nnx.Param(slopes)
+
         self.min_bin_width = min_bin_width
         self.min_bin_height = min_bin_height
-        self.min_derivative = min_derivative
+        self.min_slope = min_slope
+        self.knots = knots
 
     @property
-    def spline_param_count(self):
+    def param_count(self):
+        """Total number of parameters needed: widths + heights + slopes."""
         return 3 * self.knots - 1
 
     @property
-    def spline_param_splits(self):
+    def param_splits(self):
+        """How to split the parameter vector into widths, heights, and slopes."""
         return [self.knots, self.knots, self.knots - 1]
 
-    @auto_vmap(x=1, params=1)
-    def __call__(self, x, params, inverse=False):
-        w, h, d = jnp.split(params, self.spline_param_splits, axis=-1)
-        return apply_mrq_spline(
+    def forward(self, x, log_density, **kwargs):
+        x, log_jac = rational_quadratic_spline(
             x,
-            w,
-            h,
-            d,
-            inverse=inverse,
+            self.widths.value,
+            self.heights.value,
+            self.slopes.value,
+            inverse=False,
             min_bin_width=self.min_bin_width,
             min_bin_height=self.min_bin_height,
-            min_derivative=self.min_derivative,
+            min_slope=self.min_slope,
         )
 
-    def forward(self, x, log_density, **kwargs):
-        params = self.params_net(x)
-        x, log_jac = self(x, params, inverse=False)
-        return x, log_density - log_jac
+        return x, log_density - jnp.sum(log_jac, axis=-1)
 
     def reverse(self, x, log_density, **kwargs):
-        params = self.params_net(x)
-        x, log_jac = self(x, params, inverse=True)
-        return x, log_density + log_jac
+        x, log_jac = rational_quadratic_spline(
+            x,
+            self.widths.value,
+            self.heights.value,
+            self.slopes.value,
+            inverse=True,
+            min_bin_width=self.min_bin_width,
+            min_bin_height=self.min_bin_height,
+            min_slope=self.min_slope,
+        )
+        return x, log_density - jnp.sum(log_jac, axis=-1)

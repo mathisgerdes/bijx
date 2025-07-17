@@ -36,8 +36,11 @@ class Distribution(nnx.Module):
     ) -> tuple[ftp.ArrayPytree, jax.Array]:
         raise NotImplementedError
 
-    def log_prob(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
+    def log_density(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
         raise NotImplementedError
+
+    def density(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
+        return jnp.exp(self.log_density(x, **kwargs))
 
 
 class ArrayPrior(Distribution):
@@ -73,9 +76,9 @@ class IndependentNormal(ArrayPrior):
     ) -> jax.Array:
         rng = self._get_rng(rng)
         x = jax.random.normal(rng, batch_shape + self.event_shape)
-        return x, self.log_prob(x)
+        return x, self.log_density(x)
 
-    def log_prob(self, x: ftp.Array, **kwargs) -> jax.Array:
+    def log_density(self, x: ftp.Array, **kwargs) -> jax.Array:
         logp = jax.scipy.stats.norm.logpdf(x)
         logp = jnp.sum(logp, axis=self.event_axes)
         return logp
@@ -91,9 +94,9 @@ class IndependentUniform(ArrayPrior):
     ) -> jax.Array:
         rng = self._get_rng(rng)
         x = jax.random.uniform(rng, batch_shape + self.event_shape)
-        return x, self.log_prob(x)
+        return x, self.log_density(x)
 
-    def log_prob(self, x: ftp.Array, **kwargs) -> jax.Array:
+    def log_density(self, x: ftp.Array, **kwargs) -> jax.Array:
         logp = jax.scipy.stats.uniform.logpdf(x)
         logp = jnp.sum(logp, axis=self.event_axes)
         return logp
@@ -150,7 +153,7 @@ class DiagonalGMM(Distribution):
         return self.process_weights(self._weights.value)
 
     @auto_vmap(x=1)
-    def log_prob(self, x):
+    def log_density(self, x):
         """
         Compute the log probability density of the Gaussian mixture model.
 
@@ -205,6 +208,6 @@ class DiagonalGMM(Distribution):
             component_indices,
         )
 
-        log_prob = self.log_prob(samples)
+        log_density = self.log_density(samples)
 
-        return samples.reshape(*batch_shape, -1), log_prob.reshape(batch_shape)
+        return samples.reshape(*batch_shape, -1), log_density.reshape(batch_shape)

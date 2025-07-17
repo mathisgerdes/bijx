@@ -3,6 +3,8 @@ from functools import partial
 import jax
 from flax import nnx
 
+from ..utils import Const
+
 
 class Bijection(nnx.Module):
     def forward(self, x, log_density, **kwargs):
@@ -19,14 +21,29 @@ class Bijection(nnx.Module):
 
 
 class Inverse(Bijection):
-    def __init__(self, bijection: Bijection):
+    def __init__(self, bijection: Bijection, invert: bool = True):
+        self.invert = Const(invert)
         self.bijection = bijection
 
     def forward(self, x, log_density, **kwargs):
-        return self.bijection.reverse(x, log_density, **kwargs)
+        return jax.lax.cond(
+            self.invert.value,
+            lambda x, ld, kw: self.bijection.reverse(x, ld, **kw),
+            lambda x, ld, kw: self.bijection.forward(x, ld, **kw),
+            x,
+            log_density,
+            kwargs,
+        )
 
     def reverse(self, x, log_density, **kwargs):
-        return self.bijection.forward(x, log_density, **kwargs)
+        return jax.lax.cond(
+            self.invert.value,
+            lambda x, ld, kw: self.bijection.forward(x, ld, **kw),
+            lambda x, ld, kw: self.bijection.reverse(x, ld, **kw),
+            x,
+            log_density,
+            kwargs,
+        )
 
 
 class Chain(Bijection):
@@ -91,4 +108,5 @@ class Frozen(Bijection):
         return self.frozen.forward(x, log_density, **kwargs)
 
     def reverse(self, x, log_density, **kwargs):
+        return self.frozen.reverse(x, log_density, **kwargs)
         return self.frozen.reverse(x, log_density, **kwargs)

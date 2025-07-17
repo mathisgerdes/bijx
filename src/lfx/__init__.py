@@ -20,6 +20,7 @@ from .bijections import (
     ContFlowDiffrax,
     ContFlowRK4,
     AffineCoupling,
+    ModuleReconstructor,
     checker_mask,
     SpectrumScaling,
     FreeTheoryScaling,
@@ -31,7 +32,7 @@ from .bijections import (
     SqueezeDims,
     Reshape,
     MonotoneRQSpline,
-    apply_mrq_spline,
+    rational_quadratic_spline,
 )
 from .bijections.onedim import (
     BetaStretch,
@@ -103,8 +104,9 @@ __all__ = [
     "kernel_equidist",
     # Discrete bijections
     "AffineCoupling",
+    "ModuleReconstructor",
     "MonotoneRQSpline",
-    "apply_mrq_spline",
+    "rational_quadratic_spline",
     "checker_mask",
     # Distributions
     "ArrayPrior",

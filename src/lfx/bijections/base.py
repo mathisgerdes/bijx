@@ -109,4 +109,3 @@ class Frozen(Bijection):
 
     def reverse(self, x, log_density, **kwargs):
         return self.frozen.reverse(x, log_density, **kwargs)
-        return self.frozen.reverse(x, log_density, **kwargs)

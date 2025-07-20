@@ -60,13 +60,13 @@ lfx/
 ├── bijections/                 # All bijection-related code
 │   ├── __init__.py
 │   ├── base.py                 # Bijection, Chain, ...
-│   ├── coupling.py             # AffineCoupling
+│   ├── coupling.py             # Coupling layers and utilities
 │   ├── fourier.py              # SpectrumScaling, FreeTheoryScaling, ToFourierData
 │   ├── linear.py               # Scaling, Shift
 │   ├── meta.py                 # Reshape, ExpandDims
 │   ├── onedim.py               # GaussianCDF, TanhLayer, etc.
-│   ├── splines.py
-│   └── continuous.py           # ContFlowDiffrax, ContFlowRK4
+│   ├── splines.py              # Spline layers
+│   └── continuous.py           # Continuous flow solvers
 │
 ├── nn/
 │   ├── __init__.py

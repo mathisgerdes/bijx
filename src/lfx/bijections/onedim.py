@@ -106,6 +106,73 @@ class TanhLayer(OneDimensional):
         return jnp.arctanh(y)
 
 
+class ExpLayer(OneDimensional):
+    """Elementwise exponential transform from [-inf, inf] to [0, inf]."""
+
+    def log_jac(self, x, y, **kwargs):
+        return x
+
+    def fwd(self, x, **kwargs):
+        return jnp.exp(x)
+
+    def rev(self, y, **kwargs):
+        return jnp.log(y)
+
+
+class SoftPlusLayer(OneDimensional):
+    """Numerically stable map from [-inf, inf] to [0, inf] using softplus."""
+
+    def log_jac(self, x, y, **kwargs):
+        return -nnx.softplus(-x)
+
+    def fwd(self, x, **kwargs):
+        return nnx.softplus(x)
+
+    def rev(self, y, **kwargs):
+        return jnp.log(-jnp.expm1(-y)) + y
+
+
+class PowerLayer(OneDimensional):
+    """Power transform y = x^p for positive values."""
+
+    def __init__(self, exponent: float, *, rngs=None):
+        self.exponent = exponent
+
+    def log_jac(self, x, y, **kwargs):
+        return jnp.log(jnp.abs(self.exponent)) + (self.exponent - 1) * jnp.log(x)
+
+    def fwd(self, x, **kwargs):
+        return x**self.exponent
+
+    def rev(self, y, **kwargs):
+        return y ** (1 / self.exponent)
+
+
+class AffineLayer(OneDimensional):
+    """Combined affine transformation y = scale * x + shift."""
+
+    def __init__(
+        self,
+        init_log_scale: ParamSpec = jnp.zeros(()),
+        init_shift: ParamSpec = jnp.zeros(()),
+        *,
+        rngs: nnx.Rngs = None,
+    ):
+        self.log_scale = default_wrap(init_log_scale, rngs=rngs)
+        self.shift = default_wrap(init_shift, rngs=rngs)
+
+    def log_jac(self, x, y, **kwargs):
+        return jnp.broadcast_to(self.log_scale.value, x.shape)
+
+    def fwd(self, x, **kwargs):
+        scale = jnp.exp(self.log_scale.value)
+        return scale * x + self.shift.value
+
+    def rev(self, y, **kwargs):
+        scale = jnp.exp(self.log_scale.value)
+        return (y - self.shift.value) / scale
+
+
 class BetaStretch(OneDimensional):
     """Invertible map [0, 1] -> [0, 1] inspired by beta CDFs.
 
@@ -140,5 +207,9 @@ __all__ = [
     "TanLayer",
     "SigmoidLayer",
     "TanhLayer",
+    "ExpLayer",
+    "SoftPlusLayer",
+    "PowerLayer",
+    "AffineLayer",
     "BetaStretch",
 ]

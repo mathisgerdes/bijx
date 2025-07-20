@@ -9,7 +9,10 @@ from .fourier import SpectrumScaling, FreeTheoryScaling, ToFourierData
 from .linear import Scaling, Shift
 from .meta import MetaLayer, ExpandDims, SqueezeDims, Reshape
 from .onedim import *
-from .splines import MonotoneRQSpline, rational_quadratic_spline
+from .splines import (
+    MonotoneRQSpline,
+    rational_quadratic_spline,
+)
 
 __all__ = [
     # Base classes
@@ -40,4 +43,8 @@ __all__ = [
     # Splines
     "MonotoneRQSpline",
     "rational_quadratic_spline",
+    # Fourier
+    "Fourier",
+    "FourierBasis",
+    "FourierSeries",
 ]

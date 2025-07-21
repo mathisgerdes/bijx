@@ -10,6 +10,7 @@ from lfx.bijections import (
     AffineLayer,
     BetaStretch,
     Bijection,
+    BinaryMask,
     ExpLayer,
     GaussianCDF,
     PowerLayer,
@@ -17,6 +18,7 @@ from lfx.bijections import (
     SoftPlusLayer,
     TanhLayer,
     TanLayer,
+    checker_mask,
 )
 
 # Constants for numerical stability
@@ -350,3 +352,165 @@ class TestAffineLayer:
         key = jax.random.key(0)
         bijection = AffineLayer(rngs=nnx.Rngs(params=key))
         check_log_density(bijection, x)
+
+
+class TestBinaryMask:
+    def test_split_merge_roundtrip_1d(self):
+        """Test split/merge roundtrip for 1D arrays."""
+        # Create simple mask for 1D array
+        mask = BinaryMask.from_boolean_mask(jnp.array([True, False, True, False]))
+
+        # Test with simple 1D array
+        x = jnp.array([1.0, 2.0, 3.0, 4.0])
+        primary, secondary = mask.split(x)
+        reconstructed = mask.merge(primary, secondary)
+
+        np.testing.assert_allclose(x, reconstructed, rtol=1e-6)
+
+        # Test with batch dimensions
+        x_batch = jnp.array([[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]])
+        primary_batch, secondary_batch = mask.split(x_batch)
+        reconstructed_batch = mask.merge(primary_batch, secondary_batch)
+
+        np.testing.assert_allclose(x_batch, reconstructed_batch, rtol=1e-6)
+
+    def test_split_merge_roundtrip_2d(self):
+        """Test split/merge roundtrip for 2D arrays."""
+        # Create checkerboard mask
+        mask = checker_mask((4, 4), parity=True)
+
+        # Test with 2D array
+        x = jnp.arange(16.0).reshape(4, 4)
+        primary, secondary = mask.split(x)
+        reconstructed = mask.merge(primary, secondary)
+
+        np.testing.assert_allclose(x, reconstructed, rtol=1e-6)
+
+        # Test with batch dimensions
+        x_batch = jnp.stack([x, x + 100])
+        primary_batch, secondary_batch = mask.split(x_batch)
+        reconstructed_batch = mask.merge(primary_batch, secondary_batch)
+
+        np.testing.assert_allclose(x_batch, reconstructed_batch, rtol=1e-6)
+
+    def test_split_merge_with_features(self):
+        """Test split/merge with extra feature dimensions."""
+        mask = checker_mask((3, 3), parity=False)
+
+        # Test with 1 feature dimension
+        x = jnp.arange(27.0).reshape(3, 3, 3)  # spatial + 3 features
+        primary, secondary = mask.split(x, extra_feature_dims=1)
+        reconstructed = mask.merge(primary, secondary, extra_feature_dims=1)
+
+        np.testing.assert_allclose(x, reconstructed, rtol=1e-6)
+
+        # Test with batch + features
+        x_batch = jnp.stack([x, x * 2])  # (2, 3, 3, 3)
+        primary_batch, secondary_batch = mask.split(x_batch, extra_feature_dims=1)
+        reconstructed_batch = mask.merge(
+            primary_batch, secondary_batch, extra_feature_dims=1
+        )
+
+        np.testing.assert_allclose(x_batch, reconstructed_batch, rtol=1e-6)
+
+    def test_mask_creation_consistency(self):
+        """Test that different mask creation methods are consistent."""
+        # Create boolean mask
+        bool_mask = jnp.array([[True, False], [False, True]])
+
+        # Create from boolean
+        mask1 = BinaryMask.from_boolean_mask(bool_mask)
+
+        # Create from indices
+        indices = jnp.where(bool_mask)
+        mask2 = BinaryMask.from_indices(indices, bool_mask.shape)
+
+        # Test arrays should be identical
+        x = jnp.array([[1.0, 2.0], [3.0, 4.0]])
+
+        p1, s1 = mask1.split(x)
+        p2, s2 = mask2.split(x)
+
+        np.testing.assert_allclose(p1, p2, rtol=1e-6)
+        np.testing.assert_allclose(s1, s2, rtol=1e-6)
+
+    def test_mask_flip(self):
+        """Test mask flipping functionality."""
+        mask = checker_mask((2, 2), parity=True)
+        mask_inv = mask.flip()
+        mask_inv2 = ~mask  # test operator overload
+
+        x = jnp.array([[1.0, 2.0], [3.0, 4.0]])
+
+        # Primary/secondary should be swapped
+        p1, s1 = mask.split(x)
+        p2, s2 = mask_inv.split(x)
+
+        np.testing.assert_allclose(p1, s2, rtol=1e-6)
+        np.testing.assert_allclose(s1, p2, rtol=1e-6)
+
+        # Test operator overload gives same result
+        p3, s3 = mask_inv2.split(x)
+        np.testing.assert_allclose(p2, p3, rtol=1e-6)
+        np.testing.assert_allclose(s2, s3, rtol=1e-6)
+
+    def test_checker_mask_pattern(self):
+        """Test that checker mask creates correct checkerboard pattern."""
+        mask_even = checker_mask((4, 4), parity=False)
+        mask_odd = checker_mask((4, 4), parity=True)
+
+        # Patterns should be inverted
+        bool_even = mask_even.boolean_mask
+        bool_odd = mask_odd.boolean_mask
+
+        np.testing.assert_array_equal(bool_even, ~bool_odd)
+
+        # Test pattern structure
+        expected_even = jnp.array(
+            [
+                [False, True, False, True],
+                [True, False, True, False],
+                [False, True, False, True],
+                [True, False, True, False],
+            ]
+        )
+
+        np.testing.assert_array_equal(bool_even, expected_even)
+
+    def test_empty_and_edge_cases(self):
+        """Test edge cases like very small arrays."""
+        # Single element
+        mask = BinaryMask.from_boolean_mask(jnp.array([True]))
+        x = jnp.array([5.0])
+        primary, secondary = mask.split(x)
+        reconstructed = mask.merge(primary, secondary)
+
+        np.testing.assert_allclose(x, reconstructed, rtol=1e-6)
+        assert primary.shape == (1,)
+        assert secondary.shape == (0,)  # empty secondary
+
+        # Test with complex numbers
+        mask = BinaryMask.from_boolean_mask(jnp.array([True, False]))
+        x_complex = jnp.array([1.0 + 2.0j, 3.0 + 4.0j])
+        primary, secondary = mask.split(x_complex)
+        reconstructed = mask.merge(primary, secondary)
+
+        np.testing.assert_allclose(x_complex, reconstructed, rtol=1e-6)
+
+    @given(
+        st.tuples(st.integers(2, 6), st.integers(2, 6)).flatmap(
+            lambda shape: arrays(
+                jnp.float32,
+                shape=shape,
+                elements=st.floats(-10, 10, allow_nan=False, allow_infinity=False),
+            )
+        )
+    )
+    def test_split_merge_property(self, x):
+        """Property-based test for split/merge roundtrip."""
+        mask = checker_mask(x.shape, parity=True)
+        primary, secondary = mask.split(x)
+        reconstructed = mask.merge(primary, secondary)
+
+        # Should be approximately equal
+        np.testing.assert_allclose(x, reconstructed, rtol=1e-5, atol=1e-6)

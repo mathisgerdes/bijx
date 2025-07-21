@@ -21,8 +21,7 @@ def _indices_to_mask(indices, event_shape):
     return mask
 
 
-@flax.struct.dataclass
-class BinaryMask:
+class BinaryMask(Bijection):
     """
     Binary mask.
 
@@ -33,7 +32,10 @@ class BinaryMask:
 
     Then to apply mask, either use `mask * array` or `array[mask.indices()]`.
 
-    Inverting the mask can be done with `~mask` or `mask.invert()`.
+    The mask can be flipped with `~mask` or `mask.flip()`.
+
+    For convenience this class can also be used as a bijection,
+    which splits the input in the forward pass and merges it in the reverse pass.
     """
 
     # fundamentally store indices because then indexing is compatible with
@@ -43,15 +45,27 @@ class BinaryMask:
     secondary_indices: Const
     event_shape: tuple[int, ...]
 
+    def __init__(
+        self,
+        masks: tuple[jax.Array, jax.Array],
+        primary_indices: tuple[np.ndarray, ...],
+        secondary_indices: tuple[np.ndarray, ...],
+        event_shape: tuple[int, ...],
+    ):
+        self.masks = Const(masks)
+        self.primary_indices = Const(primary_indices)
+        self.secondary_indices = Const(secondary_indices)
+        self.event_shape = event_shape
+
     @classmethod
     def from_indices(
         cls, indices: tuple[np.ndarray, ...], event_shape: tuple[int, ...]
     ):
         mask = _indices_to_mask(indices, event_shape)
         return cls(
-            boolean_mask=Const((mask, ~mask)),
-            primary_indices=Const(np.where(mask)),
-            secondary_indices=Const(np.where(~mask)),
+            masks=(mask, ~mask),
+            primary_indices=np.where(mask),
+            secondary_indices=np.where(~mask),
             event_shape=event_shape,
         )
 
@@ -61,9 +75,9 @@ class BinaryMask:
         primary_indices = np.where(mask)
         secondary_indices = np.where(~mask)
         return cls(
-            masks=Const((mask, ~mask)),
-            primary_indices=Const(primary_indices),
-            secondary_indices=Const(secondary_indices),
+            masks=(mask, ~mask),
+            primary_indices=primary_indices,
+            secondary_indices=secondary_indices,
             event_shape=event_shape,
         )
 
@@ -79,7 +93,7 @@ class BinaryMask:
         ind += (np.s_[:],) * extra_feature_dims
         return ind
 
-    def invert(self):
+    def flip(self):
         return self.replace(
             masks=Const(self.masks.value[::-1]),
             primary_indices=self.secondary_indices,
@@ -92,9 +106,36 @@ class BinaryMask:
             array[self.indices(extra_feature_dims, batch_safe, primary=False)],
         )
 
+    def merge(self, primary, secondary, extra_feature_dims: int = 0):
+        # Shape analysis: primary is (*batch_dims, num_primary_indices, *feature_dims)
+        if extra_feature_dims > 0:
+            batch_shape = primary.shape[: -1 - extra_feature_dims]
+            feature_shape = primary.shape[-extra_feature_dims:]
+        else:
+            batch_shape = primary.shape[:-1]
+            feature_shape = ()
+
+        # Output shape: (*batch_dims, *event_shape, *feature_dims)
+        output_shape = batch_shape + self.event_shape + feature_shape
+        output = jnp.zeros(output_shape, dtype=primary.dtype)
+
+        primary_idx = self.indices(extra_feature_dims, batch_safe=True, primary=True)
+        secondary_idx = self.indices(extra_feature_dims, batch_safe=True, primary=False)
+
+        output = output.at[primary_idx].set(primary)
+        output = output.at[secondary_idx].set(secondary)
+
+        return output
+
+    def forward(self, x, log_density):
+        return self.split(x), log_density
+
+    def reverse(self, x, log_density):
+        return self.merge(x[0], x[1]), log_density
+
     # override unary ~ operator
     def __invert__(self):
-        return self.invert()
+        return self.flip()
 
     def __mul__(self, array: jax.Array):
         return self.boolean_mask * array

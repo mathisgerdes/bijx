@@ -42,7 +42,10 @@ class NonlinearFeatures(nnx.Module):
         cotangent_reshape = (*inputs.shape[:-2], 1, 1)
         cotangent = jnp.tile(local_coupling[idc, idc], cotangent_reshape)
 
-        (inputs_grad,) = bwd(cotangent * jnp.expand_dims(mask, (-1, -2)))
+        if mask is not None:
+            (inputs_grad,) = bwd(cotangent * jnp.expand_dims(mask, (-1, -2)))
+        else:
+            (inputs_grad,) = bwd(cotangent)
         divergence = jnp.sum(inputs_grad, np.arange(1, inputs_grad.ndim))
 
         if flatten_features:
@@ -62,12 +65,11 @@ class FourierFeatures(NonlinearFeatures):
         super().__init__(input_channels * feature_count, rngs=rngs)
         self.feature_count = feature_count
 
-        # Initialize parameters in __init__
         self.phi_freq = nnx.Param(
             freq_init(rngs.params(), (input_channels, feature_count))
         )
 
-    def apply_feature_map(self, phi_lin):
+    def apply_feature_map(self, phi_lin, **kwargs):
         features = jnp.einsum("...i,ij->...ij", phi_lin, self.phi_freq.value)
         features = jnp.sin(features)
         return features
@@ -84,7 +86,7 @@ class PolynomialFeatures(NonlinearFeatures):
         super().__init__(input_channels * len(powers), rngs=rngs)
         self.powers = powers
 
-    def apply_feature_map(self, phi_lin):
+    def apply_feature_map(self, phi_lin, **kwargs):
         features = jnp.stack([phi_lin**p for p in self.powers], axis=-1)
         return features
 
@@ -101,7 +103,6 @@ class DivFeatures(NonlinearFeatures):
         super().__init__(input_channels * feature_count, rngs=rngs)
         self.feature_count = feature_count
 
-        # Initialize parameters in __init__
         self.phi_freq = nnx.Param(
             freq_init(
                 rngs.params(),
@@ -109,7 +110,7 @@ class DivFeatures(NonlinearFeatures):
             )
         )
 
-    def apply_feature_map(self, phi_lin):
+    def apply_feature_map(self, phi_lin, **kwargs):
         freq = jnp.abs(self.phi_freq)
         features = jnp.einsum("...i,ij->...ij", -(phi_lin**2), 1 / freq)
         features = jnp.einsum("...ij,...i,ij->...ij", jnp.exp(features), phi_lin, freq)
@@ -125,9 +126,9 @@ class ConcatFeatures(NonlinearFeatures):
         super().__init__(sum(f.out_channel_size for f in features), rngs=rngs)
         self.features = features
 
-    def apply_feature_map(self, phi_lin):
+    def apply_feature_map(self, phi_lin, **kwargs):
         return jnp.concatenate(
-            [f.apply_feature_map(phi_lin) for f in self.features], axis=-1
+            [f.apply_feature_map(phi_lin, **kwargs) for f in self.features], axis=-1
         )
 
 

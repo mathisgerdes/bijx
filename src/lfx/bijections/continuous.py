@@ -5,6 +5,7 @@ Continuous-time vector fields.
 import typing as tp
 
 import diffrax
+import flax.nnx as nnx
 import jax
 
 from ..solvers import DiffraxConfig, odeint_rk4
@@ -15,12 +16,18 @@ class ContFlowDiffrax(Bijection):
     def __init__(
         self,
         # (t, x, **kwargs) -> dx/dt, d(log_density)/dt
-        vf: tp.Callable,
+        vf: nnx.Module,
         config: DiffraxConfig = DiffraxConfig(),
     ):
-        self.vf = vf
+        self.vf_graph, self.vf_variables, self.vf_meta = nnx.split(
+            vf, nnx.Variable, ...
+        )
         self.config = config
         assert config.saveat == diffrax.SaveAt(t1=True), "saveat must be t1=True"
+
+    def vf(self, t, state, args):
+        variables, kwargs = args
+        return nnx.merge(self.vf_graph, variables, self.vf_meta)(t, state[0], **kwargs)
 
     def solve_flow(
         self,
@@ -41,9 +48,9 @@ class ContFlowDiffrax(Bijection):
             dt=dt,
             saveat=saveat,
         )
-        term = diffrax.ODETerm(lambda t, state, args: self.vf(t, state[0], **args))
+        term = diffrax.ODETerm(self.vf)
         y0 = (x, log_density)
-        sol = config.solve(term, y0, kwargs)
+        sol = config.solve(term, y0, (self.vf_variables, kwargs))
         return sol
 
     def forward(self, x, log_density, **kwargs):

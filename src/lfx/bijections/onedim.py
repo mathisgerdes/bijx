@@ -1,5 +1,9 @@
 """
-Parametric and parameter-free one-dimensional bijections.
+One-dimensional bijective transformations for normalizing flows.
+
+This module provides element-wise bijections that can be composed to build
+complex normalizing flows. Each bijection implements forward/reverse transforms
+with automatic log-Jacobian computation for density estimation.
 """
 
 import jax
@@ -11,7 +15,11 @@ from .base import Bijection
 
 
 def sum_log_jac(x, log_density, log_jac):
-    """Sum divergence over event axes."""
+    """Sum log-Jacobian over event dimensions for density updates.
+
+    Computes the updated log-density by summing the log-Jacobian contributions
+    over the event dimensions while preserving batch dimensions.
+    """
     event_dim = jnp.ndim(x) - jnp.ndim(log_density)
     si = ShapeInfo(event_dim=event_dim, channel_dim=0)
     _, si = si.process_event(jnp.shape(x))
@@ -19,6 +27,15 @@ def sum_log_jac(x, log_density, log_jac):
 
 
 class OneDimensional(Bijection):
+    """Base class for element-wise one-dimensional bijections.
+
+    Subclasses must implement:
+    - log_jac(x, y): Log absolute determinant of Jacobian
+    - fwd(x): Forward transformation x → y
+    - rev(y): Reverse transformation y → x
+
+    The forward/reverse methods handle log-density updates automatically.
+    """
 
     def log_jac(self, x, y, **kwargs):
         raise NotImplementedError
@@ -39,7 +56,11 @@ class OneDimensional(Bijection):
 
 
 class GaussianCDF(OneDimensional):
-    """Invertible map from [-inf, inf] to [0, 1] using Gaussian cdfs."""
+    """Gaussian CDF normalization with learnable location and scale.
+
+    Type: [-∞, ∞] → [0, 1]
+    Transform: Φ((x - μ)/σ) where Φ is the standard Gaussian CDF.
+    """
 
     def __init__(
         self,
@@ -68,7 +89,11 @@ class GaussianCDF(OneDimensional):
 
 
 class TanLayer(OneDimensional):
-    """Invertible map from [0, 1] to [-inf, inf] using tan/arctan."""
+    """Tangent-based unbounded transform.
+
+    Type: [0, 1] → [-∞, ∞]
+    Transform: tan(π(x - 0.5)) with appropriate scaling.
+    """
 
     def log_jac(self, x, y, **kwargs):
         return jnp.log(jnp.abs(jnp.pi * (1 + y**2)))
@@ -81,7 +106,11 @@ class TanLayer(OneDimensional):
 
 
 class SigmoidLayer(OneDimensional):
-    """Invertible map from [-inf, inf] to [0, 1] using sigmoid."""
+    """Sigmoid normalization transform.
+
+    Type: [-∞, ∞] → [0, 1]
+    Transform: 1/(1 + exp(-x)) with stable numerics.
+    """
 
     def log_jac(self, x, y):
         return jnp.log(y) + jnp.log(1 - y)
@@ -94,7 +123,11 @@ class SigmoidLayer(OneDimensional):
 
 
 class TanhLayer(OneDimensional):
-    """Invertible map from [-inf, inf] to [-1, 1] using tanh."""
+    """Hyperbolic tangent bounded transform.
+
+    Type: [-∞, ∞] → [-1, 1]
+    Transform: tanh(x) with exact inverse arctanh(y).
+    """
 
     def log_jac(self, x, y, **kwargs):
         return jnp.log(jnp.abs(1 - y**2))
@@ -107,7 +140,11 @@ class TanhLayer(OneDimensional):
 
 
 class ExpLayer(OneDimensional):
-    """Elementwise exponential transform from [-inf, inf] to [0, inf]."""
+    """Exponential transform to positive reals.
+
+    Type: [-∞, ∞] → [0, ∞]
+    Transform: exp(x) with log-Jacobian equal to x.
+    """
 
     def log_jac(self, x, y, **kwargs):
         return x
@@ -120,7 +157,11 @@ class ExpLayer(OneDimensional):
 
 
 class SoftPlusLayer(OneDimensional):
-    """Numerically stable map from [-inf, inf] to [0, inf] using softplus."""
+    """Numerically stable exponential transform.
+
+    Type: [-∞, ∞] → [0, ∞]
+    Transform: log(1 + exp(x)) with stable computation for large |x|.
+    """
 
     def log_jac(self, x, y, **kwargs):
         return -nnx.softplus(-x)
@@ -133,7 +174,11 @@ class SoftPlusLayer(OneDimensional):
 
 
 class PowerLayer(OneDimensional):
-    """Power transform y = x^p for positive values."""
+    """Power transformation for positive values.
+
+    Type: [0, ∞] → [0, ∞]
+    Transform: x^p. Requires strictly positive inputs.
+    """
 
     def __init__(self, exponent: float, *, rngs=None):
         self.exponent = exponent
@@ -149,7 +194,11 @@ class PowerLayer(OneDimensional):
 
 
 class AffineLayer(OneDimensional):
-    """Combined affine transformation y = scale * x + shift."""
+    """Learnable affine transformation.
+
+    Type: [-∞, ∞] → [-∞, ∞]
+    Transform: scale * x + shift with learnable parameters.
+    """
 
     def __init__(
         self,
@@ -174,9 +223,10 @@ class AffineLayer(OneDimensional):
 
 
 class BetaStretch(OneDimensional):
-    """Invertible map [0, 1] -> [0, 1] inspired by beta CDFs.
+    """Beta-inspired stretching on unit interval.
 
-    Note that this module does not check for valid range and a != 0.
+    Type: [0, 1] → [0, 1]
+    Transform: x^a / (x^a + (1-x)^a). Requires a ≠ 0 and valid range.
     """
 
     def __init__(self, a: ParamSpec, *, rngs=None):

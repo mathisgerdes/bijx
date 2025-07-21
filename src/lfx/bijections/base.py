@@ -20,7 +20,7 @@ class Bijection(nnx.Module):
         return Inverse(self)
 
 
-class Inverse(Bijection):
+class CondInverse(Bijection):
     def __init__(self, bijection: Bijection, invert: bool = True):
         self.invert = Const(invert)
         self.bijection = bijection
@@ -44,6 +44,23 @@ class Inverse(Bijection):
             log_density,
             kwargs,
         )
+
+    def invert(self):
+        return CondInverse(self.bijection, ~self.invert.value)
+
+
+class Inverse(Bijection):
+    def __init__(self, bijection: Bijection):
+        self.bijection = bijection
+
+    def forward(self, x, log_density, **kwargs):
+        return self.bijection.reverse(x, log_density, **kwargs)
+
+    def reverse(self, x, log_density, **kwargs):
+        return self.bijection.forward(x, log_density, **kwargs)
+
+    def invert(self):
+        return self.bijection
 
 
 class Chain(Bijection):

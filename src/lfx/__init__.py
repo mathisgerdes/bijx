@@ -21,6 +21,7 @@ from .bijections import (
     ContFlowRK4,
     AffineCoupling,
     ModuleReconstructor,
+    BinaryMask,
     checker_mask,
     SpectrumScaling,
     FreeTheoryScaling,
@@ -105,6 +106,7 @@ __all__ = [
     # Discrete bijections
     "AffineCoupling",
     "ModuleReconstructor",
+    "BinaryMask",
     "MonotoneRQSpline",
     "rational_quadratic_spline",
     "checker_mask",

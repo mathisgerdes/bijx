@@ -15,12 +15,107 @@ from ..utils import Const
 from .base import Bijection
 
 
+def _indices_to_mask(indices, event_shape):
+    mask = jnp.full(event_shape, False)
+    mask = mask.at[indices].set(True)
+    return mask
+
+
+@flax.struct.dataclass
+class BinaryMask:
+    """
+    Binary mask.
+
+    This class is designed to be a pytree node while providing both
+    multiplication-based and indexing-based masking operations.
+
+    Use `from_boolean_mask` or `from_indices` to create a mask.
+
+    Then to apply mask, either use `mask * array` or `array[mask.indices()]`.
+
+    Inverting the mask can be done with `~mask` or `mask.invert()`.
+    """
+
+    # fundamentally store indices because then indexing is compatible with
+    # jax tracers; indexing with boolean mask would yield unknown shapes
+    masks: Const
+    primary_indices: Const
+    secondary_indices: Const
+    event_shape: tuple[int, ...]
+
+    @classmethod
+    def from_indices(
+        cls, indices: tuple[np.ndarray, ...], event_shape: tuple[int, ...]
+    ):
+        mask = _indices_to_mask(indices, event_shape)
+        return cls(
+            boolean_mask=Const((mask, ~mask)),
+            primary_indices=Const(np.where(mask)),
+            secondary_indices=Const(np.where(~mask)),
+            event_shape=event_shape,
+        )
+
+    @classmethod
+    def from_boolean_mask(cls, mask: jax.Array):
+        event_shape = mask.shape
+        primary_indices = np.where(mask)
+        secondary_indices = np.where(~mask)
+        return cls(
+            masks=Const((mask, ~mask)),
+            primary_indices=Const(primary_indices),
+            secondary_indices=Const(secondary_indices),
+            event_shape=event_shape,
+        )
+
+    @property
+    def boolean_mask(self):
+        return self.masks.value[0]
+
+    def indices(
+        self, extra_feature_dims: int = 0, batch_safe: bool = True, primary: bool = True
+    ):
+        ind = (...,) if batch_safe else ()
+        ind += self.primary_indices.value if primary else self.secondary_indices.value
+        ind += (np.s_[:],) * extra_feature_dims
+        return ind
+
+    def invert(self):
+        return self.replace(
+            masks=Const(self.masks.value[::-1]),
+            primary_indices=self.secondary_indices,
+            secondary_indices=self.primary_indices,
+        )
+
+    def split(self, array, extra_feature_dims: int = 0, batch_safe: bool = True):
+        return (
+            array[self.indices(extra_feature_dims, batch_safe, primary=True)],
+            array[self.indices(extra_feature_dims, batch_safe, primary=False)],
+        )
+
+    # override unary ~ operator
+    def __invert__(self):
+        return self.invert()
+
+    def __mul__(self, array: jax.Array):
+        return self.boolean_mask * array
+
+    def __rmul__(self, array: jax.Array):
+        if jnp.ndim(array) < len(self.event_shape):
+            # numpy automatically tries to vectorize multiplication;
+            # this does not happen with jax arrays
+            raise ValueError("rank too low for multiplying by mask (try mask * array)")
+        return self.__mul__(array)
+
+
 def checker_mask(shape, parity: bool):
     """Checkerboard mask.
 
     Args:
         shape: Spacial dimensions of input.
         parity: Parity of mask.
+
+    Returns:
+        BinaryMask instance with checkerboard pattern.
     """
     idx_shape = np.ones_like(shape)
     idc = []
@@ -29,7 +124,7 @@ def checker_mask(shape, parity: bool):
         idc.append(np.arange(s, dtype=np.uint8).reshape(idx_shape))
         idx_shape[i] = 1
     mask = (sum(idc) + parity) % 2
-    return mask
+    return BinaryMask.from_boolean_mask(mask.astype(bool))
 
 
 class AffineCoupling(Bijection):
@@ -60,29 +155,29 @@ class AffineCoupling(Bijection):
 
     Args:
         net: Network that maps frozen features to s, t.
-        mask: Mask to apply to input.
+        mask: BinaryMask to apply to input.
     """
 
-    def __init__(self, net: nnx.Module, mask: jax.Array, *, rngs=None):
-        self.mask = Const(mask)
+    def __init__(self, net: nnx.Module, mask: BinaryMask, *, rngs=None):
+        self.mask = mask
         self.net = net
 
     @property
     def mask_active(self):
-        return 1 - self.mask.value
+        return ~self.mask
 
     @property
     def mask_frozen(self):
-        return self.mask.value
+        return self.mask
 
     def forward(self, x, log_density):
         x_frozen = self.mask_frozen * x
         x_active = self.mask_active * x
         activation = self.net(x_frozen)
         s, t = jnp.split(activation, 2, -1)
-        fx = x_frozen + self.mask_active * t + x_active * jnp.exp(s)
-        axes = tuple(range(-len(self.mask.shape), 0))
-        log_jac = jnp.sum(self.mask_active * s, axis=axes)
+        fx = x_frozen + (self.mask_active * t) + x_active * jnp.exp(s)
+        axes = tuple(range(-len(self.mask.event_shape), 0))
+        log_jac = jnp.sum((self.mask_active * s), axis=axes)
         return fx, log_density - log_jac
 
     def reverse(self, fx, log_density):
@@ -90,9 +185,9 @@ class AffineCoupling(Bijection):
         fx_active = self.mask_active * fx
         activation = self.net(fx_frozen)
         s, t = jnp.split(activation, 2, -1)
-        x = (fx_active - self.mask_active * t) * jnp.exp(-s) + fx_frozen
-        axes = tuple(range(-len(self.mask.shape), 0))
-        log_jac = jnp.sum(self.mask_active * s, axis=axes)
+        x = (fx_active - (self.mask_active * t)) * jnp.exp(-s) + fx_frozen
+        axes = tuple(range(-len(self.mask.event_shape), 0))
+        log_jac = jnp.sum((self.mask_active * s), axis=axes)
         return x, log_density + log_jac
 
 

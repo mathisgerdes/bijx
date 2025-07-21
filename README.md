@@ -4,6 +4,10 @@ Updated and improved version of flow library using flax.nnx.
 
 ## Goals
 
+Generally, this library aims to provide flexible tools for building normalizing flows and doing research.
+In particular, the focus is not to expose a simple and safe interface.
+Rather, as much power and flexibility is given to the user.
+
 - Expose as many of the building blocks to the user as possible.
 - Sacrifice some convenience for modularity (i.e. repeat some code, but then easier to implement new ideas).
 - Using one part of the library should not force you to use the rest (as much as possible).

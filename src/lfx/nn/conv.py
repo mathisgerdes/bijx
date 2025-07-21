@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
+from flax.nnx.nn import dtypes
 
 from ..utils import Const
 
@@ -345,6 +346,10 @@ class ConvSym(nnx.Module):
             for details.
         kernel_init: initializer for the convolutional kernel.
         bias_init: initializer for the bias.
+        promote_dtype: function to promote the dtype of the arrays to the desired
+            dtype. The function should accept a tuple of ``(inputs, kernel, bias)``
+            and a ``dtype`` keyword argument, and return a tuple of arrays with the
+            promoted dtype.
         rngs: rng key.
     """
 
@@ -368,6 +373,7 @@ class ConvSym(nnx.Module):
         kernel_init: ftp.Initializer = nnx.nn.linear.default_kernel_init,
         bias_init: ftp.Initializer = nnx.nn.linear.default_bias_init,
         conv_general_dilated: ftp.ConvGeneralDilatedT = jax.lax.conv_general_dilated,
+        promote_dtype: ftp.PromoteDtypeFn = dtypes.promote_dtype,
         rngs: nnx.Rngs,
     ):
         if isinstance(kernel_size, int):
@@ -415,6 +421,7 @@ class ConvSym(nnx.Module):
         self.kernel_init = kernel_init
         self.bias_init = bias_init
         self.conv_general_dilated = conv_general_dilated
+        self.promote_dtype = promote_dtype
 
     @property
     def kernel(self) -> nnx.Param[jax.Array]:

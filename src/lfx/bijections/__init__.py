@@ -4,7 +4,7 @@ Bijections package.
 
 from .base import Bijection, Chain, ScanChain, Frozen, Inverse
 from .continuous import ContFlowDiffrax, ContFlowRK4
-from .coupling import AffineCoupling, checker_mask, ModuleReconstructor
+from .coupling import AffineCoupling, checker_mask, ModuleReconstructor, BinaryMask
 from .fourier import SpectrumScaling, FreeTheoryScaling, ToFourierData
 from .linear import Scaling, Shift
 from .meta import MetaLayer, ExpandDims, SqueezeDims, Reshape
@@ -28,6 +28,7 @@ __all__ = [
     "AffineCoupling",
     "checker_mask",
     "ModuleReconstructor",
+    "BinaryMask",
     # Fourier-space bijections
     "SpectrumScaling",
     "FreeTheoryScaling",

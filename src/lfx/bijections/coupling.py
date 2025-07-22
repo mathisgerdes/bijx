@@ -47,11 +47,16 @@ class BinaryMask(Bijection):
 
     def __init__(
         self,
-        masks: tuple[jax.Array, jax.Array],
         primary_indices: tuple[np.ndarray, ...],
-        secondary_indices: tuple[np.ndarray, ...],
         event_shape: tuple[int, ...],
+        masks: tuple[jax.Array, jax.Array] | None = None,
+        secondary_indices: tuple[np.ndarray, ...] | None = None,
     ):
+        if masks is None:
+            mask = _indices_to_mask(primary_indices, event_shape)
+            masks = (mask, ~mask)
+        if secondary_indices is None:
+            secondary_indices = np.where(masks[1])
         self.masks = Const(masks)
         self.primary_indices = Const(primary_indices)
         self.secondary_indices = Const(secondary_indices)
@@ -61,25 +66,13 @@ class BinaryMask(Bijection):
     def from_indices(
         cls, indices: tuple[np.ndarray, ...], event_shape: tuple[int, ...]
     ):
-        mask = _indices_to_mask(indices, event_shape)
-        return cls(
-            masks=(mask, ~mask),
-            primary_indices=np.where(mask),
-            secondary_indices=np.where(~mask),
-            event_shape=event_shape,
-        )
+        """Creates a mask from indices."""
+        return cls(indices, event_shape)
 
     @classmethod
     def from_boolean_mask(cls, mask: jax.Array):
-        event_shape = mask.shape
-        primary_indices = np.where(mask)
-        secondary_indices = np.where(~mask)
-        return cls(
-            masks=(mask, ~mask),
-            primary_indices=primary_indices,
-            secondary_indices=secondary_indices,
-            event_shape=event_shape,
-        )
+        """Creates a mask from a boolean array."""
+        return cls(np.where(mask), mask.shape)
 
     @property
     def boolean_mask(self):
@@ -94,10 +87,11 @@ class BinaryMask(Bijection):
         return ind
 
     def flip(self):
-        return self.replace(
-            masks=Const(self.masks.value[::-1]),
-            primary_indices=self.secondary_indices,
-            secondary_indices=self.primary_indices,
+        return self.__class__(
+            self.secondary_indices.value,
+            self.event_shape,
+            masks=self.masks.value[::-1],
+            secondary_indices=self.primary_indices.value,
         )
 
     def split(self, array, extra_feature_dims: int = 0, batch_safe: bool = True):
@@ -301,7 +295,7 @@ class ModuleReconstructor:
 
     @property
     def params_shape_dict(self):
-        return {k: v.shape for k, v in self.params_dict.items()}
+        return jax.tree.map(jnp.shape, self.params_dict)
 
     @property
     def params_dtypes(self):
@@ -326,40 +320,64 @@ class ModuleReconstructor:
     def has_complex_params(self):
         return any(np.issubdtype(t, np.complexfloating) for t in self.params_dtypes)
 
-    @property
-    def auto_vmap_leaves(self):
-        return AutoVmapReconstructor(self, from_leaves=True)
-
-    @property
-    def auto_vmap_array(self):
-        return AutoVmapReconstructor(self, from_leaves=False)
-
-    @property
-    def auto_vmap_dict(self):
-        return AutoVmapReconstructor(self, params_shape=self.params_shape_dict)
-
-    def from_params(self, params: nnx.State):
+    def from_state(self, params: nnx.State):
         state = nnx.merge_state(self.unconditional, params)
         if self.graph is None:
             return state
         return nnx.merge(self.graph, state)
 
-    def from_dict(self, params: dict):
-        params_state = self.params
-        nnx.replace_by_pure_dict(params_state, params)
-        return self.from_params(params_state)
+    def _params_rank(self, params: dict | list[jax.Array] | jax.Array | nnx.State):
+        if isinstance(params, nnx.State):
+            return jax.tree.map(jnp.ndim, self.params)
+        if isinstance(params, dict):
+            return jax.tree.map(jnp.ndim, self.params_dict)
+        if isinstance(params, list):
+            return [jnp.ndim(p) for p in self.params_leaves]
+        if isinstance(params, jax.Array):
+            return 1  # always flattened
+        raise TypeError(f"Unsupported parameter type: {type(params)}")
 
-    def from_leaves(self, params: list[jax.Array]):
-        params = jax.tree.unflatten(self.params_treedef, params)
-        return self.from_params(params)
+    def from_parameters(
+        self,
+        params: dict | list[jax.Array] | jax.Array | nnx.State,
+        auto_vmap: bool = False,
+    ):
+        """Reconstructs the module from different parameter representations.
 
-    def from_array(self, params: jax.Array):
-        params_leaves = jnp.split(params, self.params_array_splits)
-        params_leaves = [
-            jnp.reshape(p, s)
-            for p, s in zip(params_leaves, self.params_shapes, strict=True)
-        ]
-        return self.from_leaves(params_leaves)
+        This method dispatches to the correct reconstruction logic based on the
+        input type.
+
+        Args:
+            params: Can be a single array, a list of arrays, a dict, or a
+                full nnx state.
+        """
+        if auto_vmap:
+            return AutoVmapReconstructor(
+                self,
+                params,
+                params_rank=self._params_rank(params),
+            )
+
+        if isinstance(params, nnx.State):
+            return self.from_state(params)
+
+        if isinstance(params, dict):
+            params_state = self.params
+            nnx.replace_by_pure_dict(params_state, params)
+            return self.from_state(params_state)
+
+        if isinstance(params, list):
+            unflattened_params = jax.tree.unflatten(self.params_treedef, params)
+            return self.from_state(unflattened_params)
+
+        if isinstance(params, jax.Array):
+            params_leaves = jnp.split(params, self.params_array_splits)
+            params_leaves = [
+                jnp.reshape(p, s)
+                for p, s in zip(params_leaves, self.params_shapes, strict=True)
+            ]
+            unflattened_params = jax.tree.unflatten(self.params_treedef, params_leaves)
+            return self.from_state(unflattened_params)
 
     def __repr__(self):
         state_or_module = self.params
@@ -377,7 +395,7 @@ jax.tree_util.register_pytree_node(
 
 @flax.struct.dataclass
 class AutoVmapReconstructor:
-    """
+    """Wrap reconstruction + function call with vmap to support batching.
 
     Warnings:
         - Need to use param.value inside the module, with implicit value usage
@@ -386,32 +404,96 @@ class AutoVmapReconstructor:
     """
 
     reconstructor: ModuleReconstructor
-    from_leaves: bool = False
-    params_shape: dict | None = None
+    params: nnx.State | dict | list[jax.Array] | jax.Array
+    params_rank: int | dict = 1
 
-    def __call__(
-        self, fn_name, params, *args, input_ranks: tuple[int, ...] = (1, 0), **kwargs
-    ):
+    def __call__(self, fn_name, *args, input_ranks: tuple[int, ...] = (1, 0), **kwargs):
 
         input_ranks = tuple(input_ranks)
         input_ranks += (None,) * (len(args) - len(input_ranks))
 
         @auto_vmap(
-            self.params_shape if self.params_shape is not None else 1,
+            self.params_rank,
             input_ranks,
         )
         def apply(params, args):
-            if self.params_shape is not None:
-                module = self.reconstructor.from_dict(params)
-            elif self.from_leaves:
-                module = self.reconstructor.from_leaves(params)
-            else:
-                module = self.reconstructor.from_array(params)
-
+            module = self.reconstructor.from_parameters(params)
             fn = getattr(module, fn_name)
             return fn(*args, **kwargs)
 
-        return apply(params, args)
+        return apply(self.params, args)
 
     def __getattr__(self, name: str):
         return partial(self.__call__, name)
+
+
+class GeneralCouplingLayer(Bijection):
+
+    def __init__(
+        self,
+        embedding_net: nnx.Module,
+        mask: BinaryMask,
+        bijection_reconstructor: ModuleReconstructor,
+        split: bool = True,  # if false, use masking by multiplication
+    ):
+        self.embedding_net = embedding_net
+        self.mask = mask
+        self.bijection_reconstructor = bijection_reconstructor
+        self.split = split
+
+    def _split(self, x):
+        if self.split:
+            return self.mask.split(x)
+        else:
+            return self.mask * x, ~self.mask * x
+
+    def _merge(self, active, passive):
+        if self.split:
+            return self.mask.merge(active, passive)
+        else:
+            # assume passive was not modified; no need to mask again
+            # active masked for safety (in case passive part was modified)
+            return self.mask * active + passive
+
+    def _apply(self, x, log_density, inverse=False, **kwargs):
+        active, passive = self._split(x)
+
+        params = self.embedding_net(passive)
+        bijection = self.bijection_reconstructor.from_parameters(params, auto_vmap=True)
+
+        method = bijection.reverse if inverse else bijection.forward
+        active, delta_log_density = method(
+            active, jnp.zeros_like(log_density), input_ranks=(1, 0)
+        )
+
+        if not self.split:
+            delta_log_density *= self.mask
+            axes = tuple(range(-len(self.mask.event_shape), 0))
+            delta_log_density = jnp.sum(delta_log_density, axis=axes)
+        else:
+            event_axes = tuple(
+                range(jnp.ndim(log_density), jnp.ndim(delta_log_density))
+            )
+            delta_log_density = jnp.sum(delta_log_density, axis=event_axes)
+
+        log_density += delta_log_density
+
+        x = self._merge(active, passive)
+
+        return x, log_density
+
+    def forward(self, x, log_density, **kwargs):
+        return self._apply(
+            x,
+            log_density,
+            inverse=False,
+            **kwargs,
+        )
+
+    def reverse(self, x, log_density, **kwargs):
+        return self._apply(
+            x,
+            log_density,
+            inverse=True,
+            **kwargs,
+        )

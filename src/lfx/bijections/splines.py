@@ -2,18 +2,16 @@
 Spline-based bijections.
 """
 
-from functools import partial
-
-import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 from jax_autovmap import auto_vmap
 
-from .base import Bijection
+from ..utils import ShapeInfo
+from .base import BijectionApplyFn
 
 
-@auto_vmap(inputs=1, bin_widths=2, bin_heights=2, knot_slopes=2)
+@auto_vmap(inputs=0, bin_widths=1, bin_heights=1, knot_slopes=1)
 def rational_quadratic_spline(
     inputs,
     bin_widths,
@@ -69,29 +67,20 @@ def rational_quadratic_spline(
     inputs_clipped = jnp.clip(inputs, 0, 1)
 
     # Helper function for advanced indexing over the batch dimension
-    @jax.vmap
-    def get_indexed_values(array, indices):
-        return array[indices]
 
     # Find which bin each input falls into, using the clipped inputs.
     if inverse:
-        bin_idx = (
-            jax.vmap(partial(jnp.searchsorted, side="right"))(knot_y, inputs_clipped)
-            - 1
-        )
+        bin_idx = jnp.searchsorted(knot_y, inputs_clipped, side="right") - 1
     else:
-        bin_idx = (
-            jax.vmap(partial(jnp.searchsorted, side="right"))(knot_x, inputs_clipped)
-            - 1
-        )
+        bin_idx = jnp.searchsorted(knot_x, inputs_clipped, side="right") - 1
 
     # Get bin boundaries and slopes for each input
-    left_knot_x = get_indexed_values(knot_x, bin_idx)
-    bin_width = get_indexed_values(bin_widths, bin_idx)
-    left_knot_y = get_indexed_values(knot_y, bin_idx)
-    left_slope = get_indexed_values(slopes, bin_idx)
-    bin_height = get_indexed_values(bin_heights, bin_idx)
-    right_slope = get_indexed_values(slopes, bin_idx + 1)
+    left_knot_x = knot_x[bin_idx]
+    bin_width = bin_widths[bin_idx]
+    left_knot_y = knot_y[bin_idx]
+    left_slope = slopes[bin_idx]
+    bin_height = bin_heights[bin_idx]
+    right_slope = slopes[bin_idx + 1]
 
     # Compute bin slope (average rise over run)
     bin_slope = bin_height / bin_width
@@ -153,11 +142,11 @@ def rational_quadratic_spline(
     return outputs, final_log_det
 
 
-class MonotoneRQSpline(Bijection):
+class MonotoneRQSpline(BijectionApplyFn):
     def __init__(
         self,
-        in_features,
         knots,
+        event_shape=(),
         *,
         min_bin_width=1e-3,
         min_bin_height=1e-3,
@@ -172,10 +161,12 @@ class MonotoneRQSpline(Bijection):
 
         Assume input is 1-dimensional.
         """
+        self.event_shape = event_shape
+        self.in_features = np.prod(event_shape, dtype=int)
 
-        widths = widths_init(rngs.params(), (in_features, knots))
-        heights = heights_init(rngs.params(), (in_features, knots))
-        slopes = slopes_init(rngs.params(), (in_features, knots - 1))
+        widths = widths_init(rngs.params(), (*event_shape, knots))
+        heights = heights_init(rngs.params(), (*event_shape, knots - 1))
+        slopes = slopes_init(rngs.params(), (*event_shape, knots - 1))
 
         self.widths = nnx.Param(widths)
         self.heights = nnx.Param(heights)
@@ -196,29 +187,34 @@ class MonotoneRQSpline(Bijection):
         """How to split the parameter vector into widths, heights, and slopes."""
         return [self.knots, self.knots, self.knots - 1]
 
-    def forward(self, x, log_density, **kwargs):
+    def apply(self, x, log_density, reverse, **kwargs):
+        # flatten event_shape of x (last len(event_shape) dimensions) using einops
+        # if len(self.event_shape) == 0:
+        #     x = jnp.expand_dims(x, -1)
+        # else:
+        #     axes = ' '.join(f'a{i}' for i in range(len(self.event_shape)))
+        #     axes_sizes = {
+        #         f'a{i}': s
+        #         for i, s in enumerate(self.event_shape)
+        #     }
+        #     x = rearrange(x, f'... {axes} -> ... ({axes})', **axes_sizes)
+
         x, log_jac = rational_quadratic_spline(
             x,
             self.widths.value,
             self.heights.value,
             self.slopes.value,
-            inverse=False,
+            inverse=reverse,
             min_bin_width=self.min_bin_width,
             min_bin_height=self.min_bin_height,
             min_slope=self.min_slope,
         )
 
-        return x, log_density - jnp.sum(log_jac, axis=-1)
+        # return to original event shape
+        # if len(self.event_shape) == 0:
+        #     x = jnp.squeeze(x, -1)
+        # else:
+        #     x = rearrange(x, f'... ({axes}) -> ... {axes}', **axes_sizes)
 
-    def reverse(self, x, log_density, **kwargs):
-        x, log_jac = rational_quadratic_spline(
-            x,
-            self.widths.value,
-            self.heights.value,
-            self.slopes.value,
-            inverse=True,
-            min_bin_width=self.min_bin_width,
-            min_bin_height=self.min_bin_height,
-            min_slope=self.min_slope,
-        )
-        return x, log_density - jnp.sum(log_jac, axis=-1)
+        event_axes = ShapeInfo(event_shape=self.event_shape).event_axes
+        return x, log_density - jnp.sum(log_jac, axis=event_axes)

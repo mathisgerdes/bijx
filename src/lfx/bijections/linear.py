@@ -15,7 +15,7 @@ from .base import Bijection
 class Scaling(Bijection):
     def __init__(
         self,
-        shape_or_val: ParamSpec,
+        shape_or_val: ParamSpec = (),
         transform: tp.Callable = lambda x: x,
         *,
         init: ftp.Initializer = nnx.initializers.ones,
@@ -58,7 +58,7 @@ class Scaling(Bijection):
 class Shift(Bijection):
     def __init__(
         self,
-        shape_or_val: ParamSpec,
+        shape_or_val: ParamSpec = (),
         transform: tp.Callable = lambda x: x,
         *,
         init: ftp.Initializer = nnx.initializers.zeros,
@@ -77,3 +77,39 @@ class Shift(Bijection):
 
     def reverse(self, x, log_density, **kwargs):
         return x - self.shift, log_density
+
+
+class LinearAffine(Bijection):
+    def __init__(
+        self,
+        scale: ParamSpec = (),
+        shift: ParamSpec = (),
+        transform_scale: tp.Callable = lambda x: x,
+        transform_shift: tp.Callable = jnp.exp,
+        *,
+        init_scale: ftp.Initializer = nnx.initializers.zeros,
+        init_shift: ftp.Initializer = nnx.initializers.zeros,
+        rngs: nnx.Rngs | None = None,
+    ):
+        self.transform_scale = transform_scale
+        self.transform_shift = transform_shift
+        self.scale_val = default_wrap(scale, init_fn=init_scale, rngs=rngs)
+        self.shift_val = default_wrap(shift, init_fn=init_shift, rngs=rngs)
+
+    @property
+    def scale(self):
+        scale = self.scale_val.value
+        return self.transform_scale(scale)
+
+    @property
+    def shift(self):
+        shift = self.shift_val.value
+        return self.transform_shift(shift)
+
+    def forward(self, x, log_density, **kwargs):
+        scale, shift = self.scale, self.shift
+        return x * scale + shift, log_density
+
+    def reverse(self, x, log_density, **kwargs):
+        scale, shift = self.scale, self.shift
+        return (x - shift) / scale, log_density

@@ -17,6 +17,25 @@ FrozenFilter = nnx.Any(Const, nnx.PathContains("frozen"))
 ParamSpec = nnx.Variable | jax.Array | np.ndarray | chex.Shape | None
 
 
+def load_shapes_magic():
+    try:
+        from IPython import get_ipython
+        from IPython.core.magic import Magics, line_magic, magics_class
+
+        ip = get_ipython()
+
+        @magics_class
+        class ShapesMagic(Magics):
+            @line_magic
+            def shapes(self, line):
+                output = eval(line, self.shell.user_ns)
+                print(jax.tree.map(jnp.shape, output))
+
+        ip.register_magics(ShapesMagic)
+    except ImportError:
+        print("Warning: IPython not found; shapes magic not loaded")
+
+
 def is_shape(x):
     if not isinstance(x, tuple | list):
         return False

@@ -13,8 +13,24 @@ class Bijection(nnx.Module):
     def reverse(self, x, log_density, **kwargs):
         return x, log_density
 
-    def __call__(self, x, log_density, **kwargs):
-        return self.forward(x, log_density, **kwargs)
+    def invert(self):
+        return Inverse(self)
+
+
+Identity = Bijection()
+
+
+# for convenience, useful to have a single function for both forward and reverse
+class BijectionApplyFn(nnx.Module):
+
+    def apply(self, x, log_density, reverse=False, **kwargs):
+        raise NotImplementedError
+
+    def forward(self, x, log_density, **kwargs):
+        return self.apply(x, log_density, reverse=False, **kwargs)
+
+    def reverse(self, x, log_density, **kwargs):
+        return self.apply(x, log_density, reverse=True, **kwargs)
 
     def invert(self):
         return Inverse(self)

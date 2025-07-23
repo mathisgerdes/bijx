@@ -2,7 +2,8 @@
 Coupling layer bijections.
 """
 
-from functools import partial
+import functools
+import inspect
 
 import flax
 import jax
@@ -38,8 +39,6 @@ class BinaryMask(Bijection):
     which splits the input in the forward pass and merges it in the reverse pass.
     """
 
-    # fundamentally store indices because then indexing is compatible with
-    # jax tracers; indexing with boolean mask would yield unknown shapes
     masks: Const
     primary_indices: Const
     secondary_indices: Const
@@ -61,6 +60,18 @@ class BinaryMask(Bijection):
         self.primary_indices = Const(primary_indices)
         self.secondary_indices = Const(secondary_indices)
         self.event_shape = event_shape
+
+    @property
+    def count_primary(self):
+        return self.primary_indices.value[0].size
+
+    @property
+    def count_secondary(self):
+        return self.secondary_indices.value[0].size
+
+    @property
+    def counts(self):
+        return self.count_primary, self.count_secondary
 
     @classmethod
     def from_indices(
@@ -169,20 +180,20 @@ class AffineCoupling(Bijection):
     Masking here is done by multiplication, not by indexing.
 
     Example:
-    ```python
-    space_shape = (16, 16)  # no channel/feature dim (add dummy axis below)
+        ```python
+        space_shape = (16, 16)  # no channel/feature dim (add dummy axis below)
 
-    affine_flow = lfx.Chain([
-        lfx.ExpandDims(),
-        lfx.AffineCoupling(
-            lfx.SimpleConvNet(1, 2, rngs=rngs),
-            lfx.checker_mask(space_shape + (1,), True)),
-        lfx.AffineCoupling(
-            lfx.SimpleConvNet(1, 2, rngs=rngs),
-            lfx.checker_mask(space_shape + (1,), False)),
-        lfx.ExpandDims().invert(),
-    ])
-    ```
+        affine_flow = lfx.Chain([
+            lfx.ExpandDims(),
+            lfx.AffineCoupling(
+                lfx.SimpleConvNet(1, 2, rngs=rngs),
+                lfx.checker_mask(space_shape + (1,), True)),
+            lfx.AffineCoupling(
+                lfx.SimpleConvNet(1, 2, rngs=rngs),
+                lfx.checker_mask(space_shape + (1,), False)),
+            lfx.ExpandDims().invert(),
+        ])
+        ```
 
     `net` should map: `x_f -> act`
     such that `s, t = split(act, 2, -1)`
@@ -333,11 +344,11 @@ class ModuleReconstructor:
             return jax.tree.map(jnp.ndim, self.params_dict)
         if isinstance(params, list):
             return [jnp.ndim(p) for p in self.params_leaves]
-        if isinstance(params, jax.Array):
+        if isinstance(params, np.ndarray | jax.Array):
             return 1  # always flattened
         raise TypeError(f"Unsupported parameter type: {type(params)}")
 
-    def from_parameters(
+    def from_params(
         self,
         params: dict | list[jax.Array] | jax.Array | nnx.State,
         auto_vmap: bool = False,
@@ -370,14 +381,16 @@ class ModuleReconstructor:
             unflattened_params = jax.tree.unflatten(self.params_treedef, params)
             return self.from_state(unflattened_params)
 
-        if isinstance(params, jax.Array):
-            params_leaves = jnp.split(params, self.params_array_splits)
+        if isinstance(params, np.ndarray | jax.Array):
+            params_leaves = jnp.split(params, self.params_array_splits, -1)
             params_leaves = [
-                jnp.reshape(p, s)
+                jnp.reshape(p, p.shape[:-1] + s)
                 for p, s in zip(params_leaves, self.params_shapes, strict=True)
             ]
             unflattened_params = jax.tree.unflatten(self.params_treedef, params_leaves)
             return self.from_state(unflattened_params)
+
+        raise TypeError(f"Unsupported parameter type: {type(params)}")
 
     def __repr__(self):
         state_or_module = self.params
@@ -407,7 +420,7 @@ class AutoVmapReconstructor:
     params: nnx.State | dict | list[jax.Array] | jax.Array
     params_rank: int | dict = 1
 
-    def __call__(self, fn_name, *args, input_ranks: tuple[int, ...] = (1, 0), **kwargs):
+    def __call__(self, fn_name, *args, input_ranks: tuple[int, ...] = (0, 0), **kwargs):
 
         input_ranks = tuple(input_ranks)
         input_ranks += (None,) * (len(args) - len(input_ranks))
@@ -417,14 +430,51 @@ class AutoVmapReconstructor:
             input_ranks,
         )
         def apply(params, args):
-            module = self.reconstructor.from_parameters(params)
+            module = self.reconstructor.from_params(params)
             fn = getattr(module, fn_name)
             return fn(*args, **kwargs)
 
         return apply(self.params, args)
 
     def __getattr__(self, name: str):
-        return partial(self.__call__, name)
+        module = self.reconstructor.from_params(self.params)
+        bare_attr = getattr(module, name)
+
+        if not callable(bare_attr):
+            return bare_attr
+
+        # Create a wrapper function
+        original_sig = inspect.signature(bare_attr)
+        new_params = list(original_sig.parameters.values())
+
+        # Insert input_ranks before any VAR_KEYWORD parameter
+        input_ranks_param = inspect.Parameter(
+            "input_ranks",
+            inspect.Parameter.KEYWORD_ONLY,
+            default=(0, 0),
+            annotation=tuple[int, ...],
+        )
+
+        # Find position to insert (before VAR_KEYWORD if it exists)
+        insert_pos = len(new_params)
+        for i, param in enumerate(new_params):
+            if param.kind == inspect.Parameter.VAR_KEYWORD:
+                insert_pos = i
+                break
+
+        new_params.insert(insert_pos, input_ranks_param)
+        new_sig = original_sig.replace(parameters=new_params)
+
+        def wrapped(*args, input_ranks=(0, 0), **kwargs):
+            return self.__call__(name, *args, input_ranks=input_ranks, **kwargs)
+
+        wrapped = functools.update_wrapper(wrapped, bare_attr)
+        wrapped.__signature__ = new_sig
+        return wrapped
+
+    def __repr__(self):
+        state_or_module = self.reconstructor.from_params(self.params)
+        return f"AutoVmapReconstructor:{state_or_module}"
 
 
 class GeneralCouplingLayer(Bijection):
@@ -434,12 +484,14 @@ class GeneralCouplingLayer(Bijection):
         embedding_net: nnx.Module,
         mask: BinaryMask,
         bijection_reconstructor: ModuleReconstructor,
+        bijection_event_rank: int = 0,
         split: bool = True,  # if false, use masking by multiplication
     ):
         self.embedding_net = embedding_net
         self.mask = mask
         self.bijection_reconstructor = bijection_reconstructor
         self.split = split
+        self.bijection_event_rank = bijection_event_rank
 
     def _split(self, x):
         if self.split:
@@ -458,23 +510,42 @@ class GeneralCouplingLayer(Bijection):
     def _apply(self, x, log_density, inverse=False, **kwargs):
         active, passive = self._split(x)
 
+        active_rank = self.bijection_event_rank
+        if self.split:
+            if active_rank == 0:
+                dens_shape = jnp.shape(log_density) + (1,)
+            elif active_rank == 1:
+                dens_shape = jnp.shape(log_density)
+            else:
+                raise ValueError(
+                    "Split reduces active and passive arrays to be vectors; "
+                    "bijection_event_rank must be 0 or 1"
+                )
+        else:
+            if len(self.mask.event_shape) < active_rank:
+                raise ValueError(
+                    f"Event rank given mask shape {self.mask.event_shape} "
+                    f"is too low for bijection_event_rank {self.bijection_event_rank}"
+                )
+            broadcast_rank = len(self.mask.event_shape) - active_rank
+            dens_shape = jnp.shape(log_density) + (1,) * broadcast_rank
+
         params = self.embedding_net(passive)
-        bijection = self.bijection_reconstructor.from_parameters(params, auto_vmap=True)
+        bijection = self.bijection_reconstructor.from_params(params, auto_vmap=True)
 
         method = bijection.reverse if inverse else bijection.forward
         active, delta_log_density = method(
-            active, jnp.zeros_like(log_density), input_ranks=(1, 0)
+            active, jnp.zeros(dens_shape), input_ranks=(active_rank, 0)
         )
 
         if not self.split:
+            # sum over event axes that were vmap'd over
             delta_log_density *= self.mask
-            axes = tuple(range(-len(self.mask.event_shape), 0))
+            axes = tuple(range(-broadcast_rank, 0))
             delta_log_density = jnp.sum(delta_log_density, axis=axes)
-        else:
-            event_axes = tuple(
-                range(jnp.ndim(log_density), jnp.ndim(delta_log_density))
-            )
-            delta_log_density = jnp.sum(delta_log_density, axis=event_axes)
+        elif active_rank == 0:
+            # case: applied vmap over flattened event axes
+            delta_log_density = jnp.sum(delta_log_density, axis=-1)
 
         log_density += delta_log_density
 

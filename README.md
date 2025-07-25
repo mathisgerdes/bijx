@@ -1,4 +1,8 @@
-# Normalizing flows with jax & flax
+<div style="text-align: center;">
+    <img src="docs/source/_static/icons/bijx.svg" alt="bijx logo" height="100">
+</div>
+
+# Bijective transformations with jax & flax
 
 Updated and improved version of flow library using flax.nnx.
 

@@ -19,7 +19,6 @@ from .bijections import (
     Inverse,
     ContFlowDiffrax,
     ContFlowRK4,
-    AffineCoupling,
     ModuleReconstructor,
     BinaryMask,
     GeneralCouplingLayer,
@@ -37,7 +36,7 @@ from .bijections import (
     MonotoneRQSpline,
     rational_quadratic_spline,
 )
-from .bijections.onedim import (
+from .bijections.scalar import (
     BetaStretch,
     GaussianCDF,
     SigmoidLayer,
@@ -107,7 +106,6 @@ __all__ = [
     "kernel_d4",
     "kernel_equidist",
     # Discrete bijections
-    "AffineCoupling",
     "ModuleReconstructor",
     "BinaryMask",
     "GeneralCouplingLayer",
@@ -124,6 +122,7 @@ __all__ = [
     "KernelGauss",
     "KernelLin",
     "KernelReduced",
+    "PositionalEmbedding",
     # Fourier transforms
     "FreeTheoryScaling",
     "SpectrumScaling",

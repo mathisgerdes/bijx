@@ -1,4 +1,4 @@
-# (Lattice) normalizing flows with jax & flax
+# Normalizing flows with jax & flax
 
 Updated and improved version of flow library using flax.nnx.
 
@@ -52,7 +52,7 @@ This approach, facilitated by the `utils.ParamSpec` type hint and `utils.default
 ## Module layout
 
 ```
-lfx/
+bijx/
 ├── __init__.py                 # Main package exports (simplified structure)
 ├── utils.py                    # Utilities
 ├── distributions.py

@@ -10,8 +10,8 @@ from .bijections.base import Bijection
 from .distributions import Distribution
 
 
-class FlowjaxToLfxBijection(Bijection):
-    """Wrap a flowjax bijection to work with LFX interface."""
+class FlowjaxToBijxBijection(Bijection):
+    """Wrap a flowjax bijection to work with bijx interface."""
 
     def __init__(self, flowjax_bijection, cond_name: str = "condition"):
         params, self.treedef = jax.tree.flatten(flowjax_bijection)
@@ -46,8 +46,8 @@ class FlowjaxToLfxBijection(Bijection):
         return self.apply(self.flowjax_bijection, y, condition, log_density, True)
 
 
-class LfxToFlowjaxBijection(flowjax.bijections.AbstractBijection):
-    """Wrap an LFX bijection to work with flowjax interface."""
+class BijxToFlowjaxBijection(flowjax.bijections.AbstractBijection):
+    """Wrap an bijx bijection to work with flowjax interface."""
 
     shape: tuple[int, ...]
     cond_shape: tuple[int, ...] | None
@@ -87,8 +87,8 @@ class LfxToFlowjaxBijection(flowjax.bijections.AbstractBijection):
         return x, -neg_log_det
 
 
-class FlowjaxToLfxDistribution(Distribution):
-    """Wrap a flowjax distribution to work with LFX interface."""
+class FlowjaxToBijxDistribution(Distribution):
+    """Wrap a flowjax distribution to work with bijx interface."""
 
     def __init__(
         self, flowjax_dist, cond_name: str = "condition", rngs: nnx.Rngs | None = None
@@ -124,8 +124,8 @@ class FlowjaxToLfxDistribution(Distribution):
         return self.flowjax_dist.log_prob(x, condition)
 
 
-class LfxToFlowjaxDistribution(flowjax.distributions.AbstractDistribution):
-    """Wrap an LFX distribution to work with flowjax interface."""
+class BijxToFlowjaxDistribution(flowjax.distributions.AbstractDistribution):
+    """Wrap an bijx distribution to work with flowjax interface."""
 
     shape: tuple[int, ...]
     cond_shape: tuple[int, ...] | None
@@ -180,15 +180,15 @@ def to_flowjax(
     if isinstance(module, Bijection):
         if shape is None:
             raise TypeError(
-                "Converting LFX bijection to FlowJAX requires 'shape' parameter"
+                "Converting bijx bijection to FlowJAX requires 'shape' parameter"
             )
-        return LfxToFlowjaxBijection.from_bijection(module, shape, cond_shape)
+        return BijxToFlowjaxBijection.from_bijection(module, shape, cond_shape)
     elif isinstance(module, Distribution):
         if shape is None:
             raise TypeError(
-                "Converting LFX distribution to FlowJAX requires 'shape' parameter"
+                "Converting bijx distribution to FlowJAX requires 'shape' parameter"
             )
-        return LfxToFlowjaxDistribution.from_distribution(module, shape, cond_shape)
+        return BijxToFlowjaxDistribution.from_distribution(module, shape, cond_shape)
     else:
         raise ValueError(f"Unsupported module type: {type(module)}")
 
@@ -200,8 +200,8 @@ def from_flowjax(
     ),
 ):
     if isinstance(module, flowjax.bijections.AbstractBijection):
-        return FlowjaxToLfxBijection(module)
+        return FlowjaxToBijxBijection(module)
     elif isinstance(module, flowjax.distributions.AbstractDistribution):
-        return FlowjaxToLfxDistribution(module)
+        return FlowjaxToBijxDistribution(module)
     else:
         raise ValueError(f"Unsupported module type: {type(module)}")

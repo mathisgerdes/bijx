@@ -3,9 +3,9 @@ requires = ["setuptools>=45", "wheel", "setuptools_scm>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lfx"
+name = "bijx"
 dynamic = ["version"]
-description = "LFX Python Package"
+description = "bijection library for jax"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -46,11 +46,11 @@ test = [
 ]
 
 [tool.setuptools_scm]
-write_to = "src/lfx/_version.py"
+write_to = "src/bijx/_version.py"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = ["lfx"]
+packages = ["bijx"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

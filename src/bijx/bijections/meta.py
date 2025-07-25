@@ -41,6 +41,13 @@ class SqueezeDims(MetaLayer):
 
 
 class Reshape(MetaLayer):
+    """Reshape arrays.
+
+    Args:
+        from_shape: Original event shape to reshape from.
+        to_shape: Target event shape to reshape to.
+    """
+
     def __init__(
         self, from_shape: tuple[int, ...], to_shape: tuple[int, ...], *, rngs=None
     ):
@@ -61,3 +68,15 @@ class Reshape(MetaLayer):
         to_shape = shape[-len(self.to_shape) :]
         assert to_shape == self.to_shape
         return jnp.reshape(x, batch_shape + self.from_shape)
+
+
+class Partial(Bijection):
+    def __init__(self, bijection: Bijection, **kwargs):
+        self.bijection = bijection
+        self.kwargs = kwargs
+
+    def forward(self, x, log_density, **kwargs):
+        return self.bijection(x, log_density, **self.kwargs, **kwargs)
+
+    def reverse(self, x, log_density, **kwargs):
+        return self.bijection.reverse(x, log_density, **self.kwargs, **kwargs)

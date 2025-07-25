@@ -5,7 +5,6 @@ Bijections package.
 from .base import Bijection, Chain, ScanChain, Frozen, Inverse
 from .continuous import ContFlowDiffrax, ContFlowRK4
 from .coupling import (
-    AffineCoupling,
     checker_mask,
     ModuleReconstructor,
     BinaryMask,
@@ -15,7 +14,7 @@ from .coupling import (
 from .fourier import SpectrumScaling, FreeTheoryScaling, ToFourierData
 from .linear import Scaling, Shift, LinearAffine
 from .meta import MetaLayer, ExpandDims, SqueezeDims, Reshape
-from .onedim import *
+from .scalar import *
 from .splines import (
     MonotoneRQSpline,
     rational_quadratic_spline,
@@ -32,7 +31,6 @@ __all__ = [
     "ContFlowDiffrax",
     "ContFlowRK4",
     # Coupling layers
-    "AffineCoupling",
     "checker_mask",
     "ModuleReconstructor",
     "BinaryMask",

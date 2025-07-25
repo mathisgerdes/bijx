@@ -4,7 +4,7 @@ import numpy as np
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from lfx.fourier import (
+from bijx.fourier import (
     FFTRep,
     FourierData,
     get_fourier_duplicated,

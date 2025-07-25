@@ -173,70 +173,6 @@ def checker_mask(shape, parity: bool):
     return BinaryMask.from_boolean_mask(mask.astype(bool))
 
 
-class AffineCoupling(Bijection):
-    """
-    Affine coupling layer.
-
-    Masking here is done by multiplication, not by indexing.
-
-    Example:
-        ```python
-        space_shape = (16, 16)  # no channel/feature dim (add dummy axis below)
-
-        affine_flow = lfx.Chain([
-            lfx.ExpandDims(),
-            lfx.AffineCoupling(
-                lfx.SimpleConvNet(1, 2, rngs=rngs),
-                lfx.checker_mask(space_shape + (1,), True)),
-            lfx.AffineCoupling(
-                lfx.SimpleConvNet(1, 2, rngs=rngs),
-                lfx.checker_mask(space_shape + (1,), False)),
-            lfx.ExpandDims().invert(),
-        ])
-        ```
-
-    `net` should map: `x_f -> act`
-    such that `s, t = split(act, 2, -1)`
-    and `x_out = t + x_a * exp(s) + x_f`
-
-    Args:
-        net: Network that maps frozen features to s, t.
-        mask: BinaryMask to apply to input.
-    """
-
-    def __init__(self, net: nnx.Module, mask: BinaryMask, *, rngs=None):
-        self.mask = mask
-        self.net = net
-
-    @property
-    def mask_active(self):
-        return ~self.mask
-
-    @property
-    def mask_frozen(self):
-        return self.mask
-
-    def forward(self, x, log_density):
-        x_frozen = self.mask_frozen * x
-        x_active = self.mask_active * x
-        activation = self.net(x_frozen)
-        s, t = jnp.split(activation, 2, -1)
-        fx = x_frozen + (self.mask_active * t) + x_active * jnp.exp(s)
-        axes = tuple(range(-len(self.mask.event_shape), 0))
-        log_jac = jnp.sum((self.mask_active * s), axis=axes)
-        return fx, log_density - log_jac
-
-    def reverse(self, fx, log_density):
-        fx_frozen = self.mask_frozen * fx
-        fx_active = self.mask_active * fx
-        activation = self.net(fx_frozen)
-        s, t = jnp.split(activation, 2, -1)
-        x = (fx_active - (self.mask_active * t)) * jnp.exp(-s) + fx_frozen
-        axes = tuple(range(-len(self.mask.event_shape), 0))
-        log_jac = jnp.sum((self.mask_active * s), axis=axes)
-        return x, log_density + log_jac
-
-
 class ModuleReconstructor:
     """
     Parameter management utility for dynamically parameterizing modules.
@@ -358,9 +294,14 @@ class ModuleReconstructor:
         This method dispatches to the correct reconstruction logic based on the
         input type.
 
+        If auto_vmap is True, an object is returned that behaves almost like
+        the module except that function calls are automatically vectorized
+        (via vmap) over parameters and inputs.
+
         Args:
             params: Can be a single array, a list of arrays, a dict, or a
                 full nnx state.
+            auto_vmap: If True, wrap the reconstruction in an AutoVmapReconstructor.
         """
         if auto_vmap:
             return AutoVmapReconstructor(

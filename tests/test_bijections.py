@@ -6,7 +6,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
-from lfx.bijections import (
+from bijx.bijections import (
     AffineLayer,
     BetaStretch,
     Bijection,

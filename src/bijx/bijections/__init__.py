@@ -2,7 +2,7 @@
 Bijections package.
 """
 
-from .base import Bijection, Chain, ScanChain, Frozen, Inverse
+from .base import Bijection, ApplyBijection, Chain, ScanChain, Frozen, Inverse
 from .continuous import ContFlowDiffrax, ContFlowRK4
 from .coupling import (
     checker_mask,
@@ -12,7 +12,6 @@ from .coupling import (
     AutoVmapReconstructor,
 )
 from .fourier import SpectrumScaling, FreeTheoryScaling, ToFourierData
-from .linear import Scaling, Shift, LinearAffine
 from .meta import MetaLayer, ExpandDims, SqueezeDims, Reshape
 from .scalar import *
 from .splines import (
@@ -23,6 +22,7 @@ from .splines import (
 __all__ = [
     # Base classes
     "Bijection",
+    "ApplyBijection",
     "Chain",
     "ScanChain",
     "Frozen",
@@ -42,8 +42,9 @@ __all__ = [
     "ToFourierData",
     # Linear transformations
     "Scaling",
+    "ScalarBijection",
     "Shift",
-    "LinearAffine",
+    "AffineLinear",
     # Meta transformations
     "MetaLayer",
     "ExpandDims",

@@ -73,6 +73,10 @@ class BinaryMask(Bijection):
     def counts(self):
         return self.count_primary, self.count_secondary
 
+    @property
+    def event_size(self):
+        return sum(self.counts)
+
     @classmethod
     def from_indices(
         cls, indices: tuple[np.ndarray, ...], event_shape: tuple[int, ...]
@@ -90,11 +94,11 @@ class BinaryMask(Bijection):
         return self.masks.value[0]
 
     def indices(
-        self, extra_feature_dims: int = 0, batch_safe: bool = True, primary: bool = True
+        self, extra_channel_dims: int = 0, batch_safe: bool = True, primary: bool = True
     ):
         ind = (...,) if batch_safe else ()
         ind += self.primary_indices.value if primary else self.secondary_indices.value
-        ind += (np.s_[:],) * extra_feature_dims
+        ind += (np.s_[:],) * extra_channel_dims
         return ind
 
     def flip(self):
@@ -105,27 +109,27 @@ class BinaryMask(Bijection):
             secondary_indices=self.primary_indices.value,
         )
 
-    def split(self, array, extra_feature_dims: int = 0, batch_safe: bool = True):
+    def split(self, array, extra_channel_dims: int = 0, batch_safe: bool = True):
         return (
-            array[self.indices(extra_feature_dims, batch_safe, primary=True)],
-            array[self.indices(extra_feature_dims, batch_safe, primary=False)],
+            array[self.indices(extra_channel_dims, batch_safe, primary=True)],
+            array[self.indices(extra_channel_dims, batch_safe, primary=False)],
         )
 
-    def merge(self, primary, secondary, extra_feature_dims: int = 0):
-        # Shape analysis: primary is (*batch_dims, num_primary_indices, *feature_dims)
-        if extra_feature_dims > 0:
-            batch_shape = primary.shape[: -1 - extra_feature_dims]
-            feature_shape = primary.shape[-extra_feature_dims:]
+    def merge(self, primary, secondary, extra_channel_dims: int = 0):
+        # Shape analysis: primary is (*batch_dims, num_primary_indices, *channel_dims)
+        if extra_channel_dims > 0:
+            batch_shape = primary.shape[: -1 - extra_channel_dims]
+            channel_shape = primary.shape[-extra_channel_dims:]
         else:
             batch_shape = primary.shape[:-1]
-            feature_shape = ()
+            channel_shape = ()
 
-        # Output shape: (*batch_dims, *event_shape, *feature_dims)
-        output_shape = batch_shape + self.event_shape + feature_shape
+        # Output shape: (*batch_dims, *event_shape, *channel_dims)
+        output_shape = batch_shape + self.event_shape + channel_shape
         output = jnp.zeros(output_shape, dtype=primary.dtype)
 
-        primary_idx = self.indices(extra_feature_dims, batch_safe=True, primary=True)
-        secondary_idx = self.indices(extra_feature_dims, batch_safe=True, primary=False)
+        primary_idx = self.indices(extra_channel_dims, batch_safe=True, primary=True)
+        secondary_idx = self.indices(extra_channel_dims, batch_safe=True, primary=False)
 
         output = output.at[primary_idx].set(primary)
         output = output.at[secondary_idx].set(secondary)

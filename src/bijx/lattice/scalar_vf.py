@@ -24,7 +24,7 @@ class NonlinearFeatures(nnx.Module):
         self.out_channel_size = out_channel_size
 
     def apply_feature_map(self, inputs, **kwargs):
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def __call__(
         self, inputs, local_coupling, flatten_features=True, mask=None, **kwargs

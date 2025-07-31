@@ -24,7 +24,7 @@ repos:
         "--ignore=E203,ERA001",
       ]
       # Exclude __init__.py from F401 (unused import) checks and ipynb files
-      exclude: ^.*/__init__\.py$|.*\.ipynb$
+      exclude: ^.*/__init__\.py$|.*\.ipynb$|docs/source/conf\.py$
 
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v4.5.0

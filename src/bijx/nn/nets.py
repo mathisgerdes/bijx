@@ -1,5 +1,5 @@
 """
-Simple neural networks provided for convenience.
+Simple neural networks for convenience and prototyping.
 """
 
 import typing as tp
@@ -7,7 +7,7 @@ import typing as tp
 from flax import nnx
 
 
-class SimpleConvNet(nnx.Module):
+class ConvNet(nnx.Module):
 
     def __init__(
         self,
@@ -17,6 +17,7 @@ class SimpleConvNet(nnx.Module):
         hidden_channels: list[int] = [8, 8],
         activation: tp.Callable = nnx.leaky_relu,
         final_activation: tp.Callable = nnx.tanh,
+        padding: str = "CIRCULAR",
         *,
         rngs: nnx.Rngs,
     ):
@@ -29,7 +30,7 @@ class SimpleConvNet(nnx.Module):
                 in_features=c_in,
                 out_features=c_out,
                 kernel_size=kernel_size,
-                padding="CIRCULAR",
+                padding=padding,
                 rngs=rngs,
             )
             for c_in, c_out in zip(
@@ -47,7 +48,7 @@ class SimpleConvNet(nnx.Module):
         return x
 
 
-class SimpleResNet(nnx.Module):
+class ResNet(nnx.Module):
     def __init__(
         self,
         in_features: int,
@@ -95,5 +96,47 @@ class SimpleResNet(nnx.Module):
             delta = layer(delta)
             x += delta
         x = self.final_layer(x)
+        x = self.final_activation(x)
+        return x
+
+
+class MLP(nnx.Module):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        hidden_features: list[int] = [1024, 1024],
+        *,
+        activation: tp.Callable = nnx.gelu,
+        final_activation: tp.Callable = lambda x: x,
+        rngs: nnx.Rngs,
+    ):
+        self.activation = activation
+        self.final_activation = final_activation
+
+        self.layers = [
+            nnx.Linear(
+                in_features=in_features, out_features=hidden_features[0], rngs=rngs
+            )
+        ]
+
+        for i in range(len(hidden_features) - 1):
+            self.layers.append(
+                nnx.Linear(
+                    in_features=hidden_features[i],
+                    out_features=hidden_features[i + 1],
+                    rngs=rngs,
+                )
+            )
+        self.layers.append(
+            nnx.Linear(
+                in_features=hidden_features[-1], out_features=out_features, rngs=rngs
+            )
+        )
+
+    def __call__(self, x):
+        for layer in self.layers:
+            x = layer(x)
+            x = self.activation(x)
         x = self.final_activation(x)
         return x

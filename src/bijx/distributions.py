@@ -26,7 +26,7 @@ class Distribution(nnx.Module):
         return rng
 
     def get_batch_shape(self, x: ftp.ArrayPytree) -> tuple[int, ...]:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def sample(
         self,
@@ -34,10 +34,10 @@ class Distribution(nnx.Module):
         rng: ftp.PRNGKey | None = None,
         **kwargs,
     ) -> tuple[ftp.ArrayPytree, jax.Array]:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def log_density(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def density(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
         return jnp.exp(self.log_density(x, **kwargs))
@@ -104,7 +104,7 @@ class IndependentUniform(ArrayPrior):
 
 class DiagonalGMM(Distribution):
     """
-    Diagonal Gaussian mixture model.
+    Mixture of Gaussians with diagonal covariance matrices.
 
     Assume data (events) are one-dimensional arrays.
     """

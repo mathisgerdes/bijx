@@ -16,15 +16,28 @@ class Bijection(nnx.Module):
     def invert(self):
         return Inverse(self)
 
+    def __call__(self, x, log_density, **kwargs):
+        """Default to forward."""
+        return self.forward(x, log_density, **kwargs)
+
 
 Identity = Bijection()
 
 
 # for convenience, useful to have a single function for both forward and reverse
-class BijectionApplyFn(nnx.Module):
+class ApplyBijection(Bijection):
+    """
+    Convenience class for defining bijections with single apply method.
+
+    This is useful when otherwise the forward and reverse methods would share
+    significant amounts of code.
+
+    The apply method should have the same signature as forward/reverse,
+    except for an additional `reverse` boolean keyword argument.
+    """
 
     def apply(self, x, log_density, reverse=False, **kwargs):
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def forward(self, x, log_density, **kwargs):
         return self.apply(x, log_density, reverse=False, **kwargs)

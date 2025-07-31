@@ -1,7 +1,7 @@
-from . import conv, embeddings, simple_nets
+from . import conv, embeddings, nets
 
 __all__ = [
     "conv",
     "embeddings",
-    "simple_nets",
+    "nets",
 ]

@@ -7,17 +7,17 @@ from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
 from bijx.bijections import (
-    AffineLayer,
+    AffineLinear,
     BetaStretch,
     Bijection,
     BinaryMask,
-    ExpLayer,
+    Exponential,
     GaussianCDF,
-    PowerLayer,
-    SigmoidLayer,
-    SoftPlusLayer,
-    TanhLayer,
-    TanLayer,
+    Power,
+    Sigmoid,
+    SoftPlus,
+    Tan,
+    Tanh,
     checker_mask,
 )
 
@@ -226,13 +226,13 @@ class TestTanLayer:
     @settings(deadline=None, max_examples=10)
     @given(unit_interval_inputs())
     def test_inverse(self, x: jnp.ndarray) -> None:
-        bijection = TanLayer()
+        bijection = Tan()
         check_inverse(bijection, x)
 
     @settings(deadline=None, max_examples=10)
     @given(unit_interval_inputs())
     def test_log_density(self, x: jnp.ndarray) -> None:
-        bijection = TanLayer()
+        bijection = Tan()
         check_log_density(bijection, x)
 
 
@@ -242,13 +242,13 @@ class TestSigmoidLayer:
     @settings(deadline=None, max_examples=10)
     @given(gaussian_domain_inputs())
     def test_inverse(self, x: jnp.ndarray) -> None:
-        bijection = SigmoidLayer()
+        bijection = Sigmoid()
         check_inverse(bijection, x)
 
     @settings(deadline=None, max_examples=10)
     @given(gaussian_domain_inputs())
     def test_log_density(self, x: jnp.ndarray) -> None:
-        bijection = SigmoidLayer()
+        bijection = Sigmoid()
         check_log_density(bijection, x)
 
 
@@ -258,13 +258,13 @@ class TestTanhLayer:
     @settings(deadline=None, max_examples=10)
     @given(gaussian_domain_inputs())
     def test_inverse(self, x: jnp.ndarray) -> None:
-        bijection = TanhLayer()
+        bijection = Tanh()
         check_inverse(bijection, x)
 
     @settings(deadline=None, max_examples=10)
     @given(gaussian_domain_inputs())
     def test_log_density(self, x: jnp.ndarray) -> None:
-        bijection = TanhLayer()
+        bijection = Tanh()
         check_log_density(bijection, x)
 
 
@@ -294,13 +294,13 @@ class TestExpLayer:
     @settings(deadline=None, max_examples=10)
     @given(gaussian_domain_inputs())
     def test_inverse(self, x: jnp.ndarray) -> None:
-        bijection = ExpLayer()
+        bijection = Exponential()
         check_inverse(bijection, x)
 
     @settings(deadline=None, max_examples=10)
     @given(gaussian_domain_inputs())
     def test_log_density(self, x: jnp.ndarray) -> None:
-        bijection = ExpLayer()
+        bijection = Exponential()
         check_log_density(bijection, x)
 
 
@@ -310,13 +310,13 @@ class TestSoftPlusLayer:
     @settings(deadline=None, max_examples=10)
     @given(gaussian_domain_inputs())
     def test_inverse(self, x: jnp.ndarray) -> None:
-        bijection = SoftPlusLayer()
+        bijection = SoftPlus()
         check_inverse(bijection, x)
 
     @settings(deadline=None, max_examples=10)
     @given(gaussian_domain_inputs())
     def test_log_density(self, x: jnp.ndarray) -> None:
-        bijection = SoftPlusLayer()
+        bijection = SoftPlus()
         check_log_density(bijection, x)
 
 
@@ -326,13 +326,13 @@ class TestPowerLayer:
     @settings(deadline=None, max_examples=10)
     @given(positive_inputs())
     def test_inverse(self, x: jnp.ndarray) -> None:
-        bijection = PowerLayer(exponent=2.0)
+        bijection = Power(exponent=nnx.Variable(2.0))
         check_inverse(bijection, x)
 
     @settings(deadline=None, max_examples=10)
     @given(positive_inputs())
     def test_log_density(self, x: jnp.ndarray) -> None:
-        bijection = PowerLayer(exponent=2.0)
+        bijection = Power(exponent=nnx.Variable(2.0))
         check_log_density(bijection, x)
 
 
@@ -343,14 +343,14 @@ class TestAffineLayer:
     @given(gaussian_domain_inputs())
     def test_inverse(self, x: jnp.ndarray) -> None:
         key = jax.random.key(0)
-        bijection = AffineLayer(rngs=nnx.Rngs(params=key))
+        bijection = AffineLinear(rngs=nnx.Rngs(params=key))
         check_inverse(bijection, x)
 
     @settings(deadline=None, max_examples=10)
     @given(gaussian_domain_inputs())
     def test_log_density(self, x: jnp.ndarray) -> None:
         key = jax.random.key(0)
-        bijection = AffineLayer(rngs=nnx.Rngs(params=key))
+        bijection = AffineLinear(rngs=nnx.Rngs(params=key))
         check_log_density(bijection, x)
 
 
@@ -399,16 +399,16 @@ class TestBinaryMask:
 
         # Test with 1 feature dimension
         x = jnp.arange(27.0).reshape(3, 3, 3)  # spatial + 3 features
-        primary, secondary = mask.split(x, extra_feature_dims=1)
-        reconstructed = mask.merge(primary, secondary, extra_feature_dims=1)
+        primary, secondary = mask.split(x, extra_channel_dims=1)
+        reconstructed = mask.merge(primary, secondary, extra_channel_dims=1)
 
         np.testing.assert_allclose(x, reconstructed, rtol=1e-6)
 
         # Test with batch + features
         x_batch = jnp.stack([x, x * 2])  # (2, 3, 3, 3)
-        primary_batch, secondary_batch = mask.split(x_batch, extra_feature_dims=1)
+        primary_batch, secondary_batch = mask.split(x_batch, extra_channel_dims=1)
         reconstructed_batch = mask.merge(
-            primary_batch, secondary_batch, extra_feature_dims=1
+            primary_batch, secondary_batch, extra_channel_dims=1
         )
 
         np.testing.assert_allclose(x_batch, reconstructed_batch, rtol=1e-6)

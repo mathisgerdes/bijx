@@ -4,16 +4,42 @@ One-dimensional bijective transformations for normalizing flows.
 This module provides element-wise bijections that can be composed to build
 complex normalizing flows. Each bijection implements forward/reverse transforms
 with automatic log-Jacobian computation for density estimation.
+
+All bijections here have an automatic broadcasting behavior:
+- Follow standard numpy broadcasting rules, except:
+- Automatically infer event shape from log-density vs input shapes
+- Sum scalar log-jacobians over event axes
+
 """
+
+from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
-from flax import nnx
+from flax import nnx, struct
 
 from ..utils import ParamSpec, ShapeInfo, default_wrap
 from .base import Bijection
 
 
+# not exported (can still be accessed as bijx.bijections.scalar...)
+@struct.dataclass
+class TransformedParameter:
+    param: nnx.Variable
+    transform: Callable
+
+    @property
+    def value(self):
+        transform = self.transform
+        if transform is None:
+            return self.param.value
+        return transform(self.param.value)
+
+
+_softplus_inv_one = jnp.log(jnp.expm1(1))
+
+
+# not exported
 def sum_log_jac(x, log_density, log_jac):
     """Sum log-Jacobian over event dimensions for density updates.
 
@@ -26,7 +52,7 @@ def sum_log_jac(x, log_density, log_jac):
     return log_density + jnp.sum(log_jac, axis=si.event_axes)
 
 
-class OneDimensional(Bijection):
+class ScalarBijection(Bijection):
     """Base class for element-wise one-dimensional bijections.
 
     Subclasses must implement:
@@ -38,7 +64,7 @@ class OneDimensional(Bijection):
     """
 
     def log_jac(self, x, y, **kwargs):
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def fwd(self, x, **kwargs):
         raise NotImplementedError()
@@ -55,7 +81,7 @@ class OneDimensional(Bijection):
         return x, sum_log_jac(x, log_density, self.log_jac(x, y))
 
 
-class GaussianCDF(OneDimensional):
+class GaussianCDF(ScalarBijection):
     """Gaussian CDF normalization with learnable location and scale.
 
     Type: [-∞, ∞] → [0, 1]
@@ -64,31 +90,40 @@ class GaussianCDF(OneDimensional):
 
     def __init__(
         self,
-        init_log_scale: ParamSpec = jnp.zeros(()),
-        init_mean: ParamSpec = jnp.zeros(()),
+        scale: ParamSpec = (),
+        mean: ParamSpec = (),
+        transform_scale: Callable | None = nnx.softplus,
+        transform_mean: Callable | None = None,
         *,
         rngs: nnx.Rngs = None,
     ):
-        self.mean = default_wrap(init_mean, rngs=rngs)
-        self.log_scale = default_wrap(init_log_scale, rngs=rngs)
+        self.mean = TransformedParameter(
+            param=default_wrap(mean, init_fn=nnx.initializers.zeros, rngs=rngs),
+            transform=transform_mean,
+        )
+        self.scale = TransformedParameter(
+            param=default_wrap(
+                scale,
+                # initialize such that scale.value = 1
+                init_fn=nnx.initializers.constant(_softplus_inv_one),
+                rngs=rngs,
+            ),
+            transform=transform_scale,
+        )
 
     def log_jac(self, x, y, **kwargs):
-        loc = self.mean.value
-        scale = jnp.exp(self.log_scale.value)
-        return jax.scipy.stats.norm.logpdf(x, loc=loc, scale=scale)
+        return jax.scipy.stats.norm.logpdf(
+            x, loc=self.mean.value, scale=self.scale.value
+        )
 
     def fwd(self, x, **kwargs):
-        loc = self.mean.value
-        scale = jnp.exp(self.log_scale.value)
-        return jax.scipy.stats.norm.cdf(x, loc=loc, scale=scale)
+        return jax.scipy.stats.norm.cdf(x, loc=self.mean.value, scale=self.scale.value)
 
     def rev(self, y, **kwargs):
-        loc = self.mean.value
-        scale = jnp.exp(self.log_scale.value)
-        return jax.scipy.stats.norm.ppf(y, loc=loc, scale=scale)
+        return jax.scipy.stats.norm.ppf(y, loc=self.mean.value, scale=self.scale.value)
 
 
-class TanLayer(OneDimensional):
+class Tan(ScalarBijection):
     """Tangent-based unbounded transform.
 
     Type: [0, 1] → [-∞, ∞]
@@ -99,13 +134,13 @@ class TanLayer(OneDimensional):
         return jnp.log(jnp.abs(jnp.pi * (1 + y**2)))
 
     def fwd(self, x, **kwargs):
-        return jnp.tan(jnp.pi * (x + 0.5))
+        return jnp.tan(jnp.pi * (x - 0.5))
 
     def rev(self, y, **kwargs):
         return jnp.arctan(y) / jnp.pi + 0.5
 
 
-class SigmoidLayer(OneDimensional):
+class Sigmoid(ScalarBijection):
     """Sigmoid normalization transform.
 
     Type: [-∞, ∞] → [0, 1]
@@ -122,7 +157,7 @@ class SigmoidLayer(OneDimensional):
         return jnp.log(y / (1 - y))
 
 
-class TanhLayer(OneDimensional):
+class Tanh(ScalarBijection):
     """Hyperbolic tangent bounded transform.
 
     Type: [-∞, ∞] → [-1, 1]
@@ -139,7 +174,7 @@ class TanhLayer(OneDimensional):
         return jnp.arctanh(y)
 
 
-class ExpLayer(OneDimensional):
+class Exponential(ScalarBijection):
     """Exponential transform to positive reals.
 
     Type: [-∞, ∞] → [0, ∞]
@@ -156,7 +191,7 @@ class ExpLayer(OneDimensional):
         return jnp.log(y)
 
 
-class SoftPlusLayer(OneDimensional):
+class SoftPlus(ScalarBijection):
     """Numerically stable exponential transform.
 
     Type: [-∞, ∞] → [0, ∞]
@@ -173,64 +208,167 @@ class SoftPlusLayer(OneDimensional):
         return jnp.log(-jnp.expm1(-y)) + y
 
 
-class PowerLayer(OneDimensional):
+class Power(ScalarBijection):
     """Power transformation for positive values.
 
     Type: [0, ∞] → [0, ∞]
-    Transform: x^p. Requires strictly positive inputs.
-    """
-
-    def __init__(self, exponent: float, *, rngs=None):
-        self.exponent = exponent
-
-    def log_jac(self, x, y, **kwargs):
-        return jnp.log(jnp.abs(self.exponent)) + (self.exponent - 1) * jnp.log(x)
-
-    def fwd(self, x, **kwargs):
-        return x**self.exponent
-
-    def rev(self, y, **kwargs):
-        return y ** (1 / self.exponent)
-
-
-class AffineLayer(OneDimensional):
-    """Learnable affine transformation.
-
-    Type: [-∞, ∞] → [-∞, ∞]
-    Transform: scale * x + shift with learnable parameters.
+    Transform: x^p. Require p > 0.
     """
 
     def __init__(
         self,
-        init_log_scale: ParamSpec = jnp.zeros(()),
-        init_shift: ParamSpec = jnp.zeros(()),
+        exponent: ParamSpec = (),
+        transform_exponent: Callable | None = jnp.abs,
+        *,
+        rngs=None,
+    ):
+        self.exponent = TransformedParameter(
+            param=default_wrap(exponent, init_fn=nnx.initializers.ones, rngs=rngs),
+            transform=transform_exponent,
+        )
+
+    def log_jac(self, x, y, **kwargs):
+        return jnp.log(jnp.abs(self.exponent.value)) + (
+            self.exponent.value - 1
+        ) * jnp.log(x)
+
+    def fwd(self, x, **kwargs):
+        return x**self.exponent.value
+
+    def rev(self, y, **kwargs):
+        return y ** (1 / self.exponent.value)
+
+
+class Sinh(ScalarBijection):
+    """Hyperbolic sine transformation.
+
+    Type: [-∞, ∞] → [-∞, ∞]
+    Transform: sinh(x)
+    """
+
+    def log_jac(self, x, y, **kwargs):
+        return jnp.log(jnp.cosh(x))
+
+    def fwd(self, x, **kwargs):
+        return jnp.sinh(x)
+
+    def rev(self, y, **kwargs):
+        return jnp.arcsinh(y)
+
+
+class AffineLinear(ScalarBijection):
+    """Learnable affine transformation.
+
+    Type: [-∞, ∞] → [-∞, ∞]
+    Transform: scale * x + shift
+    """
+
+    def __init__(
+        self,
+        scale: ParamSpec = (),
+        shift: ParamSpec = (),
+        transform_scale: Callable | None = jnp.exp,
+        transform_shift: Callable | None = None,
         *,
         rngs: nnx.Rngs = None,
     ):
-        self.log_scale = default_wrap(init_log_scale, rngs=rngs)
-        self.shift = default_wrap(init_shift, rngs=rngs)
+        self.scale = TransformedParameter(
+            param=default_wrap(scale, init_fn=nnx.initializers.zeros, rngs=rngs),
+            transform=transform_scale,
+        )
+        self.shift = TransformedParameter(
+            param=default_wrap(shift, init_fn=nnx.initializers.zeros, rngs=rngs),
+            transform=transform_shift,
+        )
 
     def log_jac(self, x, y, **kwargs):
-        return jnp.broadcast_to(self.log_scale.value, x.shape)
+        return jnp.broadcast_to(jnp.log(self.scale.value), jnp.shape(x))
 
     def fwd(self, x, **kwargs):
-        scale = jnp.exp(self.log_scale.value)
-        return scale * x + self.shift.value
+        return self.scale.value * x + self.shift.value
 
     def rev(self, y, **kwargs):
-        scale = jnp.exp(self.log_scale.value)
-        return (y - self.shift.value) / scale
+        return (y - self.shift.value) / self.scale.value
 
 
-class BetaStretch(OneDimensional):
+class Scaling(ScalarBijection):
+    """Scaling transformation.
+
+    Type: [-∞, ∞] → [-∞, ∞]
+    Transform: scale * x
+    """
+
+    def __init__(
+        self,
+        scale: ParamSpec = (),
+        transform_scale: Callable | None = None,
+        *,
+        rngs=None,
+    ):
+        self.scale = TransformedParameter(
+            param=default_wrap(scale, init_fn=nnx.initializers.ones, rngs=rngs),
+            transform=transform_scale,
+        )
+
+    def log_jac(self, x, y, **kwargs):
+        return jnp.log(jnp.abs(self.scale.value))
+
+    def fwd(self, x, **kwargs):
+        return x * self.scale.value
+
+    def rev(self, y, **kwargs):
+        return y / self.scale.value
+
+
+class Shift(ScalarBijection):
+    """Shift transformation.
+
+    Type: [-∞, ∞] → [-∞, ∞]
+    Transform: x + shift
+    """
+
+    def __init__(
+        self,
+        shift: ParamSpec = (),
+        transform_shift: Callable | None = None,
+        *,
+        rngs=None,
+    ):
+        self.shift = TransformedParameter(
+            param=default_wrap(shift, init_fn=nnx.initializers.zeros, rngs=rngs),
+            transform=transform_shift,
+        )
+
+    def log_jac(self, x, y, **kwargs):
+        return jnp.zeros_like(x)
+
+    def fwd(self, x, **kwargs):
+        return x + self.shift.value
+
+    def rev(self, y, **kwargs):
+        return y - self.shift.value
+
+
+class BetaStretch(ScalarBijection):
     """Beta-inspired stretching on unit interval.
 
     Type: [0, 1] → [0, 1]
-    Transform: x^a / (x^a + (1-x)^a). Requires a ≠ 0 and valid range.
+    Transform: x^a / (x^a + (1-x)^a).
     """
 
-    def __init__(self, a: ParamSpec, *, rngs=None):
-        self.a = default_wrap(a, rngs=rngs)
+    def __init__(
+        self,
+        a: ParamSpec = (),
+        transform_a: Callable | None = nnx.softplus,
+        *,
+        rngs=None,
+    ):
+        self.a = TransformedParameter(
+            param=default_wrap(
+                a, init_fn=nnx.initializers.constant(_softplus_inv_one), rngs=rngs
+            ),
+            transform=transform_a,
+        )
 
     def log_jac(self, x, y, **kwargs):
         a = self.a.value
@@ -251,15 +389,17 @@ class BetaStretch(OneDimensional):
         return r / (r + 1)
 
 __all__ = [
-    "sum_log_jac",
-    "OneDimensional",
-    "GaussianCDF",
-    "TanLayer",
-    "SigmoidLayer",
-    "TanhLayer",
-    "ExpLayer",
-    "SoftPlusLayer",
-    "PowerLayer",
-    "AffineLayer",
+    "AffineLinear",
     "BetaStretch",
+    "Exponential",
+    "GaussianCDF",
+    "Power",
+    "Scaling",
+    "Shift",
+    "Sigmoid",
+    "Sinh",
+    "Tan",
+    "Tanh",
+    "SoftPlus",
+    "ScalarBijection",
 ]

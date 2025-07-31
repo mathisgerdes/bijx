@@ -13,6 +13,7 @@ from ._version import __version__
 
 from .bijections import (
     Bijection,
+    ApplyBijection,
     Chain,
     ScanChain,
     Frozen,
@@ -28,7 +29,6 @@ from .bijections import (
     ToFourierData,
     Scaling,
     Shift,
-    LinearAffine,
     MetaLayer,
     ExpandDims,
     SqueezeDims,
@@ -39,10 +39,14 @@ from .bijections import (
 from .bijections.scalar import (
     BetaStretch,
     GaussianCDF,
-    SigmoidLayer,
-    TanhLayer,
-    TanLayer,
-    OneDimensional,
+    Sigmoid,
+    Tanh,
+    Tan,
+    Exponential,
+    SoftPlus,
+    Power,
+    AffineLinear,
+    ScalarBijection,
 )
 from .distributions import (
     Distribution,
@@ -61,15 +65,7 @@ from .lattice.scalar_vf import (
     PolynomialFeatures,
 )
 from .mcmc import IMH, IMHState, IMHInfo
-from .nn.conv import ConvSym, kernel_d4, kernel_equidist
-from .nn.embeddings import (
-    KernelFourier,
-    KernelGauss,
-    KernelLin,
-    KernelReduced,
-    PositionalEmbedding,
-)
-from .nn.simple_nets import SimpleConvNet, SimpleResNet
+from .nn import conv, embeddings, nets
 from .samplers import Sampler, BufferedSampler
 from .solvers import odeint_rk4, DiffraxConfig, ODESolver
 from .utils import (
@@ -84,11 +80,22 @@ from .utils import (
 )
 
 __all__ = [
+    # Submodules
+    "bijections",
+    "distributions",
+    "fourier",
+    "lattice",
+    "mcmc",
+    "nn",
+    "samplers",
+    "solvers",
+    "utils",
     # Core classes
     "Bijection",
     "Distribution",
     "Sampler",
     # Bijection classes
+    "ApplyBijection",
     "Chain",
     "ScanChain",
     "ExpandDims",
@@ -99,7 +106,6 @@ __all__ = [
     "ToFourierData",
     "Scaling",
     "Shift",
-    "LinearAffine",
     "SqueezeDims",
     # Convolution
     "ConvSym",
@@ -143,10 +149,17 @@ __all__ = [
     # One-dimensional transforms
     "BetaStretch",
     "GaussianCDF",
-    "SigmoidLayer",
-    "TanhLayer",
-    "TanLayer",
-    "OneDimensional",
+    "Sigmoid",
+    "Sinh",
+    "Tanh",
+    "Tan",
+    "Exponential",
+    "SoftPlus",
+    "Power",
+    "AffineLinear",
+    "Scaling",
+    "Shift",
+    "ScalarBijection",
     # Sampling
     "BufferedSampler",
     # Lattice field features
@@ -156,9 +169,6 @@ __all__ = [
     "NonlinearFeatures",
     "Phi4CNF",
     "PolynomialFeatures",
-    # Neural networks
-    "SimpleConvNet",
-    "SimpleResNet",
     # Utilities
     "Const",
     "FrozenFilter",

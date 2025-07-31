@@ -8,7 +8,7 @@ from flax import nnx
 from jax_autovmap import auto_vmap
 
 from ..utils import ShapeInfo
-from .base import BijectionApplyFn
+from .base import ApplyBijection
 
 
 @auto_vmap(inputs=0, bin_widths=1, bin_heights=1, knot_slopes=1)
@@ -142,7 +142,7 @@ def rational_quadratic_spline(
     return outputs, final_log_det
 
 
-class MonotoneRQSpline(BijectionApplyFn):
+class MonotoneRQSpline(ApplyBijection):
     def __init__(
         self,
         knots,
@@ -188,16 +188,10 @@ class MonotoneRQSpline(BijectionApplyFn):
         return [self.knots, self.knots, self.knots - 1]
 
     def apply(self, x, log_density, reverse, **kwargs):
-        # flatten event_shape of x (last len(event_shape) dimensions) using einops
-        # if len(self.event_shape) == 0:
-        #     x = jnp.expand_dims(x, -1)
-        # else:
-        #     axes = ' '.join(f'a{i}' for i in range(len(self.event_shape)))
-        #     axes_sizes = {
-        #         f'a{i}': s
-        #         for i, s in enumerate(self.event_shape)
-        #     }
-        #     x = rearrange(x, f'... {axes} -> ... ({axes})', **axes_sizes)
+
+        event_dim = jnp.ndim(x) - jnp.ndim(log_density)
+        si = ShapeInfo(event_dim=event_dim, channel_dim=0)
+        _, si = si.process_event(jnp.shape(x))
 
         x, log_jac = rational_quadratic_spline(
             x,
@@ -210,11 +204,4 @@ class MonotoneRQSpline(BijectionApplyFn):
             min_slope=self.min_slope,
         )
 
-        # return to original event shape
-        # if len(self.event_shape) == 0:
-        #     x = jnp.squeeze(x, -1)
-        # else:
-        #     x = rearrange(x, f'... ({axes}) -> ... {axes}', **axes_sizes)
-
-        event_axes = ShapeInfo(event_shape=self.event_shape).event_axes
-        return x, log_density - jnp.sum(log_jac, axis=event_axes)
+        return x, log_density - jnp.sum(log_jac, axis=si.event_axes)

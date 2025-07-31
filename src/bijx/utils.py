@@ -14,7 +14,7 @@ class Const(nnx.Variable):
 
 # filter constants (above) and things wrapped in Frozen (defined below)
 FrozenFilter = nnx.Any(Const, nnx.PathContains("frozen"))
-ParamSpec = nnx.Variable | jax.Array | np.ndarray | chex.Shape | None
+ParamSpec = nnx.Variable | jax.Array | np.ndarray | chex.Shape
 
 
 def load_shapes_magic():
@@ -44,15 +44,11 @@ def is_shape(x):
 
 def default_wrap(
     x: ParamSpec,
-    default=None,
     cls=nnx.Param,
     init_fn=nnx.initializers.normal(),
     init_cls=nnx.Param,
     rngs: nnx.Rngs | None = None,
 ):
-    if x is None:
-        x = default
-
     if isinstance(x, nnx.Variable):
         return x
     elif isinstance(x, jax.Array | np.ndarray):

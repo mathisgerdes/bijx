@@ -1,8 +1,8 @@
-import chex
+import flax.struct
 import numpy as np
 
 
-@chex.dataclass
+@flax.struct.dataclass
 class ButcherTableau:
     stages: int
     a: tuple[tuple[int, ...]]

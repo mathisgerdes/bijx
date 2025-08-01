@@ -31,13 +31,13 @@ def stage_reduce(y0, is_lie, *deltas):
 def cg_stage(y0, vect, is_lie, ai, step_size):
     """Compute intermediate stage state."""
 
-    deltas = [jax.tree_map(lambda l: step_size * aij * l, vect[j])
+    deltas = [jax.tree.map(lambda l: step_size * aij * l, vect[j])
               for j, aij in enumerate(ai)
               if aij != 0]
 
     if len(deltas) == 0:
         return y0
-    return jax.tree_map(stage_reduce, y0, is_lie, *deltas)
+    return jax.tree.map(stage_reduce, y0, is_lie, *deltas)
 
 
 def crouch_grossmann_step(is_lie, tableau, vector_field, step_size, t, y0):
@@ -112,7 +112,7 @@ def _crouch_grossmann_rev(is_lie, tableau, vector_field, step_size, res, g):
         vect0 = vector_field(t, y, *args)
         # need to take gradient of actual tangent vector in real space
         # below, so transport vect0 to y for all values of is_lie type.
-        vect = jax.tree_map(
+        vect = jax.tree.map(
             lambda v, y, lie: transport(v, y) if lie else v,
             vect0, y, is_lie)
         return vect, vect0
@@ -121,7 +121,7 @@ def _crouch_grossmann_rev(is_lie, tableau, vector_field, step_size, res, g):
         y, adj, *_ = state
 
         _, vjp, vect = jax.vjp(_aux, t, y, args, has_aux=True)
-        t_bar, y_bar, args_bar = jax.tree_map(jnp.negative, vjp(adj))
+        t_bar, y_bar, args_bar = jax.tree.map(jnp.negative, vjp(adj))
 
         return vect, y_bar, t_bar, args_bar
 
@@ -129,15 +129,15 @@ def _crouch_grossmann_rev(is_lie, tableau, vector_field, step_size, res, g):
     # need true tangent vectors in embedding space for dot product here
     # (otherwise need more general contraction between vector and cotangent g)
     t_bar = sum(map(lambda l, v, vbar, y: jnp.sum((transport(v, y) if l else v) * vbar),
-                    jax.tree_util.tree_leaves(is_lie),
-                    jax.tree_util.tree_leaves(vector_field(ts[1], y1, *args)),
-                    jax.tree_util.tree_leaves(g),
-                    jax.tree_util.tree_leaves(y1)))
+                    jax.tree.leaves(is_lie),
+                    jax.tree.leaves(vector_field(ts[1], y1, *args)),
+                    jax.tree.leaves(g),
+                    jax.tree.leaves(y1)))
 
     t0_bar = -t_bar
 
     # state = (y, adjoint_state, grad_t, grad_args)
-    state = (y1, g, t0_bar, jax.tree_map(jnp.zeros_like, args))
+    state = (y1, g, t0_bar, jax.tree.map(jnp.zeros_like, args))
 
     # TODO
     # _tree_fill(is_lie, False) means we treat the adjoint state as simply a

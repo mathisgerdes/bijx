@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jaxcg import CG2, CG3, EULER, crouch_grossmann
+from bijx.cg import CG2, CG3, EULER, crouch_grossmann
 
 
 class TestCG(unittest.TestCase):

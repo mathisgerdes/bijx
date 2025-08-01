@@ -9,6 +9,7 @@ from . import (
     solvers,
     utils,
     lie,
+    cg,
 )
 from ._version import __version__
 
@@ -93,6 +94,7 @@ __all__ = [
     "solvers",
     "utils",
     "lie",
+    "cg",
     # Core classes
     "Bijection",
     "Distribution",

@@ -35,6 +35,7 @@ from .bijections import (
     Reshape,
     MonotoneRQSpline,
     rational_quadratic_spline,
+    AutoJacVF,
 )
 from .bijections.scalar import (
     BetaStretch,
@@ -67,7 +68,7 @@ from .lattice.scalar_vf import (
 from .mcmc import IMH, IMHState, IMHInfo
 from .nn import conv, embeddings, nets
 from .samplers import Sampler, BufferedSampler
-from .solvers import odeint_rk4, DiffraxConfig, ODESolver
+from .solvers import odeint_rk4, DiffraxConfig
 from .utils import (
     Const,
     FrozenFilter,
@@ -107,6 +108,7 @@ __all__ = [
     "Scaling",
     "Shift",
     "SqueezeDims",
+    "AutoJacVF",
     # Convolution
     "ConvSym",
     "kernel_d4",

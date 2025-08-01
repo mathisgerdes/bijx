@@ -93,67 +93,6 @@ class DiffraxConfig:
         )
 
 
-class ODESolver(nnx.Module):
-    """Basic wrapper around diffrax.diffeqsolve.
-
-    Example:
-        >>> m = lfx.ODESolver(lambda t, y: -y)
-        >>> jnp.isclose(m.solve(1.0), jnp.exp(-1.0))
-        Array(True, dtype=bool)
-
-    """
-
-    def __init__(
-        self,
-        vector_field: tp.Callable,
-        config: DiffraxConfig = DiffraxConfig(),
-        *,
-        unpack: bool = True,
-        rngs: nnx.Rngs | None = None,
-    ):
-        self.vector_field = vector_field
-        self.config = config
-        self.unpack = unpack
-
-        assert not unpack or config.saveat == diffrax.SaveAt(
-            t1=True
-        ), "To automatically unpack the solution, saveat must be t1=True"
-
-    def initialize(self, state, **kwargs):
-        def term(t, y, kwargs):
-            return self.vector_field(t, y, **kwargs)
-
-        term = diffrax.ODETerm(term)
-        # term, y0, args
-        return term, state, kwargs
-
-    def solve(
-        self,
-        state,
-        *,
-        t_start: float | None = None,
-        t_end: float | None = None,
-        dt: float | None = None,
-        saveat: diffrax.SaveAt | None = None,
-        solver_state: ftp.ArrayPytree | None = None,
-        **kwargs,
-    ):
-        config = self.config.optional_override(
-            t_start=t_start,
-            t_end=t_end,
-            dt=dt,
-            saveat=saveat,
-            solver_state=solver_state,
-        )
-
-        term, y0, args = self.initialize(state, **kwargs)
-        sol = config.solve(term, y0, args)
-
-        if self.unpack:
-            return jax.tree.map(lambda x: x[0], sol.ys)
-        return sol
-
-
 def odeint_rk4(fun, y0, end_time, *args, step_size, start_time=0):
     """Fixed step-size Runge-Kutta implementation.
 

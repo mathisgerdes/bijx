@@ -3,12 +3,16 @@ Continuous-time vector fields.
 """
 
 import typing as tp
+from functools import partial
 
 import diffrax
 import flax.nnx as nnx
 import jax
+import jax.numpy as jnp
+from jax_autovmap import auto_vmap
 
 from ..solvers import DiffraxConfig, odeint_rk4
+from ..utils import ShapeInfo
 from .base import Bijection
 
 
@@ -128,3 +132,41 @@ class ContFlowRK4(Bijection):
             t_end=self.t_start,
             **kwargs,
         )
+
+
+def _ndim_jacobian(func, event_dim):
+
+    info = ShapeInfo(event_dim=event_dim)
+
+    def func_flat(x_flat, event_shape):
+        x = x_flat.reshape(x_flat.shape[:-1] + event_shape)
+        out = func(x)
+        return out.reshape(out.shape[:-len(event_shape)] + (-1,))
+
+    @partial(jax.vmap, in_axes=(None, 0), out_axes=(None, -1))
+    def _jvp(x, tang):
+        x_flat, _info = info.process_and_flatten(x)
+        _func = partial(func_flat, event_shape=_info.event_shape)
+        v, jac = jax.jvp(_func, (x_flat,), (tang,))
+        return v.reshape(v.shape[:-1] + _info.event_shape), jac
+
+    @auto_vmap(event_dim)
+    def call_and_jac(x):
+        _, _info = info.process_event(jnp.shape(x))
+        tang_basis = jnp.eye(_info.event_size)
+        v, jac = _jvp(x, tang_basis)
+        return v, jac
+
+    return call_and_jac
+
+
+class AutoJacVF(nnx.Module):
+
+    def __init__(self, vector_field_base, event_dim=1):
+        self.vector_field_base = vector_field_base
+        self.event_dim = event_dim
+
+    def __call__(self, t, x):
+        jac_fn = _ndim_jacobian(partial(self.vector_field_base, t), self.event_dim)
+        v, jac = jac_fn(x)
+        return v, -jnp.trace(jac, axis1=-2, axis2=-1)

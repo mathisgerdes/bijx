@@ -67,7 +67,7 @@ class BijxToFlowjaxBijection(flowjax.bijections.AbstractBijection):
         return cls(shape, cond_shape, params, graph, cond_name)
 
     @property
-    def lfx_bijection(self):
+    def bijx_bijection(self):
         return nnx.merge(self.params, self.graph)
 
     def transform_and_log_det(self, x, condition=None):
@@ -75,7 +75,7 @@ class BijxToFlowjaxBijection(flowjax.bijections.AbstractBijection):
         if condition is not None:
             kwargs[self.cond_name] = condition
 
-        y, neg_log_det = self.lfx_bijection.forward(x, jnp.zeros(()), **kwargs)
+        y, neg_log_det = self.bijx_bijection.forward(x, jnp.zeros(()), **kwargs)
         return y, -neg_log_det
 
     def inverse_and_log_det(self, y, condition=None):
@@ -83,7 +83,7 @@ class BijxToFlowjaxBijection(flowjax.bijections.AbstractBijection):
         if condition is not None:
             kwargs[self.cond_name] = condition
 
-        x, neg_log_det = self.lfx_bijection.reverse(y, jnp.zeros(()), **kwargs)
+        x, neg_log_det = self.bijx_bijection.reverse(y, jnp.zeros(()), **kwargs)
         return x, -neg_log_det
 
 
@@ -145,7 +145,7 @@ class BijxToFlowjaxDistribution(flowjax.distributions.AbstractDistribution):
         return cls(shape, cond_shape, params, graph, cond_name)
 
     @property
-    def lfx_dist(self):
+    def bijx_dist(self):
         return nnx.merge(self.params, self.graph)
 
     def _sample(self, key, condition=None):
@@ -153,7 +153,7 @@ class BijxToFlowjaxDistribution(flowjax.distributions.AbstractDistribution):
         if condition is not None:
             kwargs[self.cond_name] = condition
 
-        samples, _ = self.lfx_dist.sample(batch_shape=(), rng=key, **kwargs)
+        samples, _ = self.bijx_dist.sample(batch_shape=(), rng=key, **kwargs)
         return samples
 
     def _log_prob(self, x, condition=None):
@@ -161,14 +161,14 @@ class BijxToFlowjaxDistribution(flowjax.distributions.AbstractDistribution):
         if condition is not None:
             kwargs[self.cond_name] = condition
 
-        return self.lfx_dist.log_density(x, **kwargs)
+        return self.bijx_dist.log_density(x, **kwargs)
 
     def _sample_and_log_prob(self, key, condition=None):
         kwargs = {}
         if condition is not None:
             kwargs[self.cond_name] = condition
 
-        samples, log_density = self.lfx_dist.sample(batch_shape=(), rng=key, **kwargs)
+        samples, log_density = self.bijx_dist.sample(batch_shape=(), rng=key, **kwargs)
         return samples, log_density
 
 

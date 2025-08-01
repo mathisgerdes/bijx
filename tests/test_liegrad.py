@@ -6,7 +6,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
-from glutils import SU2_GEN, U1_GEN, liegrad, sample_haar
+from bijx.lie import SU2_GEN, U1_GEN, liegrad, sample_haar
 
 
 class Potential(nn.Module):

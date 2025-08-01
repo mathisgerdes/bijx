@@ -8,6 +8,7 @@ from . import (
     samplers,
     solvers,
     utils,
+    lie,
 )
 from ._version import __version__
 
@@ -91,6 +92,7 @@ __all__ = [
     "samplers",
     "solvers",
     "utils",
+    "lie",
     # Core classes
     "Bijection",
     "Distribution",

@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from ..fourier import FFTRep, FourierData, FourierMeta, fft_momenta, get_fourier_masks
+from ..fourier import FFTRep, FourierData, FourierMeta, fft_momenta
 from ..utils import Const, ShapeInfo
 from .base import Bijection
 
@@ -33,13 +33,12 @@ class SpectrumScaling(Bijection):
 
     def scale(self, r, reverse=False):
         _, shape_info = self.shape_info.process_event(r.shape)
-
+        meta = FourierMeta.create(shape_info.space_shape)
         r = jnp.fft.rfftn(r, shape_info.space_shape, shape_info.space_axes)
         r = r / self.scaling if reverse else r * self.scaling
         r = jnp.fft.irfftn(r, shape_info.space_shape, shape_info.space_axes)
 
-        mr, mi = get_fourier_masks(shape_info.space_shape)
-        factor = mr.astype(int) + mi.astype(int)
+        factor = meta.mr.astype(int) + meta.mi.astype(int)
         delta_ld = jnp.sum(factor * jnp.log(jnp.abs(self.scaling)))
 
         return r, delta_ld

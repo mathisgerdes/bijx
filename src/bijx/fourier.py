@@ -34,116 +34,6 @@ def fft_momenta(
     return np.moveaxis(ks, 0, -1)
 
 
-def get_fourier_masks(real_shape):
-    """Get masks for independent d.o.f. of real FFT transform."""
-    # rfft reduces last dimension
-    rfft_shape = real_shape[:-1] + (real_shape[-1] // 2 + 1,)
-
-    # Start with all degrees of freedom available
-    real_mask = np.ones(rfft_shape, dtype=bool)
-    imag_mask = np.ones(rfft_shape, dtype=bool)
-
-    # For a real-valued function, FFT satisfies F(k) = F*(-k)
-    # This creates constraints on which coefficients are independent
-
-    # 1. Reality constraints: at certain frequencies, coefficients must be real
-    # This happens when k = -k (mod N), i.e., at 0 and N/2 (if N is even)
-
-    # Frequencies where reality constraint applies
-    edges = []
-    for i, n in enumerate(real_shape):
-        edge_freqs = [0]
-        if n % 2 == 0:
-            edge_freqs.append(n // 2)
-        edges.append(edge_freqs)
-
-    # At edge frequencies, imaginary part must be zero
-    for edge_idx in product(*edges):
-        # Check if this index is within the rFFT bounds
-        if edge_idx[-1] < rfft_shape[-1]:
-            imag_mask[edge_idx] = False
-
-    # 2. Duplication constraints: some coefficients are conjugates of others
-    # For rFFT, we need to identify which coefficients in the stored array
-    # are related by Hermitian symmetry
-
-    # Generate all frequency indices in the rFFT output
-    for idx in np.ndindex(rfft_shape):
-        k = np.array(idx)
-
-        # Compute the conjugate frequency: -k mod N
-        k_conj = np.array([(-ki) % ni for ki, ni in zip(k, real_shape)])
-
-        # Check if the conjugate is also in the rFFT range
-        if k_conj[-1] < rfft_shape[-1]:
-            # Both k and k_conj are stored in rFFT
-            # We need to keep only one and mark the other as dependent
-
-            # Use lexicographic ordering to decide which one to keep
-            k_tuple = tuple(k)
-            k_conj_tuple = tuple(k_conj)
-
-            if k_tuple != k_conj_tuple and k_tuple > k_conj_tuple:
-                # This coefficient is a duplicate, mark as unavailable
-                real_mask[idx] = False
-                imag_mask[idx] = False
-
-    return real_mask, imag_mask
-
-
-def get_fourier_duplicated(real_shape):
-    """Get indices of copied degrees of freedom in real FFT transform."""
-    rfft_shape = real_shape[:-1] + (real_shape[-1] // 2 + 1,)
-
-    cp_from = []
-    cp_to = []
-
-    # Find all Hermitian symmetry relationships F(k) = F*(-k)
-    for idx in np.ndindex(rfft_shape):
-        k = np.array(idx)
-
-        # Compute the conjugate frequency: -k mod N
-        k_conj = np.array([(-ki) % ni for ki, ni in zip(k, real_shape)])
-
-        # Check if the conjugate is also in the rFFT range
-        if k_conj[-1] < rfft_shape[-1]:
-            k_tuple = tuple(k)
-            k_conj_tuple = tuple(k_conj)
-
-            # If different indices are related by Hermitian symmetry,
-            # record the relationship (choose consistent ordering)
-            if k_tuple != k_conj_tuple and k_tuple > k_conj_tuple:
-                cp_from.append(k_conj)
-                cp_to.append(k)
-
-    return np.array(cp_from), np.array(cp_to)
-
-
-def rfft_fold(rfft_values, real_shape):
-    # get independent d.o.f.
-    mr, mi = get_fourier_masks(real_shape)
-    vr = rfft_values.real[..., mr]
-    vi = rfft_values.imag[..., mi]
-    return jnp.concatenate([vr, vi], axis=-1)
-
-
-def rfft_unfold(values, real_shape):
-    # get full rfft output matrix from independent d.o.f.
-    mr, mi = get_fourier_masks(real_shape)
-    copy_from, copy_to = get_fourier_duplicated(real_shape)
-
-    vr, vi = jnp.split(values, [mr.sum()], axis=-1)
-    vi = 1j * vi
-    x = jnp.zeros(vi.shape[:-1] + mr.shape, dtype=vi.dtype)
-    x = x.at[..., mr].set(vr)
-    x = x.at[..., mi].add(vi)
-
-    if len(copy_to) > 0:
-        x = x.at[(np.s_[...], *copy_to.T)].set(x[(np.s_[...], *copy_from.T)].conj())
-
-    return x
-
-
 @flax.struct.dataclass
 class FourierMeta:
     shape_info: ShapeInfo
@@ -158,11 +48,42 @@ class FourierMeta:
     )  # unique values of |k|
     unique_unfold: np.ndarray = flax.struct.field(pytree_node=False)
 
+    @staticmethod
+    def _get_fourier_info(real_shape):
+        rfft_shape = real_shape[:-1] + (real_shape[-1] // 2 + 1,)
+
+        real_mask = np.ones(rfft_shape, dtype=bool)
+        imag_mask = np.ones(rfft_shape, dtype=bool)
+
+        cp_from, cp_to = [], []
+
+        # Enforce reality constraints for k = -k mod N (F(k) must be real)
+        edges = [
+            [0] if n % 2 != 0 else [0, n // 2] for n in real_shape
+        ]
+        for edge_idx in product(*edges):
+            if edge_idx[-1] < rfft_shape[-1]:
+                imag_mask[edge_idx] = False
+
+        # Enforce Hermitian symmetry F(k) = F*(-k) for other k
+        for idx in np.ndindex(rfft_shape):
+            k = np.array(idx)
+            k_conj = np.array([(-ki) % ni for ki, ni in zip(k, real_shape)])
+
+            # Check if conjugate is also within rFFT bounds
+            if k_conj[-1] < rfft_shape[-1]:
+                k_tuple, k_conj_tuple = tuple(k), tuple(k_conj)
+                if k_tuple > k_conj_tuple:
+                    real_mask[idx] = False
+                    imag_mask[idx] = False
+                    cp_from.append(k_conj)
+                    cp_to.append(k)
+
+        return real_mask, imag_mask, np.array(cp_from), np.array(cp_to)
+
     @classmethod
     def create(cls, real_shape, channel_dim=0):
-        mr, mi = get_fourier_masks(real_shape)
-        copy_from, copy_to = get_fourier_duplicated(real_shape)
-
+        mr, mi, copy_from, copy_to = cls._get_fourier_info(real_shape)
         ks_full = np.sum(fft_momenta(real_shape, unit=True) ** 2, axis=-1).astype(int)
         ks_reduced = ks_full[mr]
 

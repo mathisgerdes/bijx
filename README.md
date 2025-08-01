@@ -30,6 +30,13 @@ Some implementations are tailored specifically to applications in physics and es
 pip install -e .
 ```
 
+For development and testing, install as editable package with all dependencies:
+
+```bash
+pip install -e ".[dev]"
+```
+
+
 ## Documentation
 
 To compile and open local server, run `make livehtml` in the docs directory.

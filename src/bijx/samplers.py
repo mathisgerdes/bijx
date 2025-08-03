@@ -11,7 +11,7 @@ from .bijections.base import Bijection
 from .distributions import Distribution
 
 
-class Sampler(Distribution):
+class Transformed(Distribution):
 
     def __init__(self, prior: Distribution, bijection: Bijection):
         super().__init__(prior.rngs)
@@ -34,15 +34,15 @@ class Sampler(Distribution):
         return self.prior.log_density(x, **kwargs) - delta
 
 
-class BufferedSampler(Sampler):
+class BufferedSampler(Distribution):
     """Buffers samples from a sampler to avoid recomputing them."""
 
-    def __init__(self, sampler: Sampler, buffer_size: int):
-        super().__init__(sampler.rngs)
-        self.sampler = sampler
+    def __init__(self, dist: Distribution, buffer_size: int):
+        super().__init__(dist.rngs)
+        self.dist = dist
         self.buffer_size = buffer_size
 
-        shapes = nnx.eval_shape(lambda s: s.sample((buffer_size,)), sampler)
+        shapes = nnx.eval_shape(lambda s: s.sample((buffer_size,)), dist)
         self.buffer = nnx.Variable(
             jax.tree.map(lambda s: jnp.empty(s.shape, s.dtype), shapes)
         )
@@ -52,7 +52,7 @@ class BufferedSampler(Sampler):
         self, batch_shape: tuple[int, ...] = (), rng: nnx.RngKey | None = None, **kwargs
     ) -> tuple[ftp.ArrayPytree, jax.Array]:
         if batch_shape != ():
-            return self.sampler.sample(batch_shape, rng=rng, **kwargs)
+            return self.dist.sample(batch_shape, rng=rng, **kwargs)
 
         _, self.buffer_index.value, self.buffer.value = nnx.cond(
             self.buffer_index.value >= self.buffer_size,
@@ -66,7 +66,7 @@ class BufferedSampler(Sampler):
                 ),
             ),
             lambda sampler: (sampler, self.buffer_index.value + 1, self.buffer.value),
-            self.sampler,
+            self.dist,
         )
 
         sample = jax.tree.map(lambda x: x[self.buffer_index.value], self.buffer.value)
@@ -75,4 +75,4 @@ class BufferedSampler(Sampler):
         return sample
 
     def log_density(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
-        return self.sampler.log_density(x, **kwargs)
+        return self.dist.log_density(x, **kwargs)

@@ -33,7 +33,7 @@ bijection = bijx.Chain(
     bijx.Scaling(jnp.array([2.0, 1.0])),
     bijx.TanhLayer(),
 )
-flow = bijx.Sampler(prior, bijection)
+flow = bijx.Transformed(prior, bijection)
 
 # Sample from the flow
 samples, log_densities = flow.sample(batch_shape=(1000,))

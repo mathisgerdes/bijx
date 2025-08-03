@@ -70,7 +70,7 @@ from .nn.features import (
     NonlinearFeatures,
     PolynomialFeatures,
 )
-from .samplers import BufferedSampler, Sampler
+from .samplers import BufferedSampler, Transformed
 from .solvers import DiffraxConfig, odeint_rk4
 from .utils import (
 
@@ -102,7 +102,7 @@ __all__ = [
     # Core classes
     "Bijection",
     "Distribution",
-    "Sampler",
+    "Transformed",
     # Bijection classes
     "ApplyBijection",
     "Chain",

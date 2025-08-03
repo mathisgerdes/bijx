@@ -1,77 +1,79 @@
 from . import (
     bijections,
+    cg,
     distributions,
     fourier,
     lattice,
+    lie,
     mcmc,
     nn,
     samplers,
     solvers,
     utils,
-    lie,
-    cg,
 )
 from ._version import __version__
-
 from .bijections import (
-    Bijection,
+    AffineLinear,
     ApplyBijection,
+    AutoJacVF,
+    Bijection,
+    BinaryMask,
     Chain,
-    ScanChain,
-    Frozen,
-    Inverse,
     ContFlowDiffrax,
     ContFlowRK4,
-    ModuleReconstructor,
-    BinaryMask,
-    GeneralCouplingLayer,
-    checker_mask,
-    SpectrumScaling,
-    FreeTheoryScaling,
-    ToFourierData,
-    Scaling,
-    Shift,
-    MetaLayer,
+    ConvCNF,
     ExpandDims,
-    SqueezeDims,
-    Reshape,
+    FreeTheoryScaling,
+    Frozen,
+    GeneralCouplingLayer,
+    Inverse,
+    MetaLayer,
     MonotoneRQSpline,
+    ModuleReconstructor,
+    Reshape,
+    ScalarBijection,
+    Scaling,
+    ScanChain,
+    Shift,
+    SpectrumScaling,
+    SqueezeDims,
+    ToFourierData,
+    checker_mask,
     rational_quadratic_spline,
-    AutoJacVF,
 )
 from .bijections.scalar import (
     BetaStretch,
-    GaussianCDF,
-    Sigmoid,
-    Tanh,
-    Tan,
     Exponential,
-    SoftPlus,
+    GaussianCDF,
     Power,
-    AffineLinear,
-    ScalarBijection,
+    Sigmoid,
+    SoftPlus,
+    Tan,
+    Tanh,
 )
 from .distributions import (
-    Distribution,
     ArrayPrior,
+    DiagonalGMM,
+    Distribution,
     IndependentNormal,
     IndependentUniform,
-    DiagonalGMM,
 )
-from .fourier import fft_momenta, FFTRep, FourierData, FourierMeta
-from .lattice.scalar_vf import (
+from .fourier import FFTRep, FourierData, FourierMeta, fft_momenta
+from .mcmc import IMH, IMHInfo, IMHState
+from .nn import conv, embeddings, features, nets
+from .nn.conv import ConvSym, kernel_d4, kernel_equidist
+from .nn.embeddings import KernelFourier, KernelGauss, KernelLin, KernelReduced, PositionalEmbedding
+from .nn.features import (
     ConcatFeatures,
     DivFeatures,
     FourierFeatures,
     NonlinearFeatures,
-    Phi4CNF,
     PolynomialFeatures,
 )
-from .mcmc import IMH, IMHState, IMHInfo
-from .nn import conv, embeddings, nets
-from .samplers import Sampler, BufferedSampler
-from .solvers import odeint_rk4, DiffraxConfig
+from .samplers import BufferedSampler, Sampler
+from .solvers import DiffraxConfig, odeint_rk4
 from .utils import (
+
     Const,
     FrozenFilter,
     ShapeInfo,
@@ -81,6 +83,7 @@ from .utils import (
     noise_model,
     reverse_dkl,
 )
+
 
 __all__ = [
     # Submodules
@@ -95,6 +98,7 @@ __all__ = [
     "utils",
     "lie",
     "cg",
+    "features",
     # Core classes
     "Bijection",
     "Distribution",
@@ -113,6 +117,7 @@ __all__ = [
     "Shift",
     "SqueezeDims",
     "AutoJacVF",
+    "ConvCNF",
     # Convolution
     "ConvSym",
     "kernel_d4",
@@ -147,7 +152,6 @@ __all__ = [
     "IMHState",
     "IMHInfo",
     # ODE solvers
-    "ODESolver",
     "DiffraxConfig",
     "ContFlowRK4",
     "ContFlowDiffrax",
@@ -168,12 +172,11 @@ __all__ = [
     "ScalarBijection",
     # Sampling
     "BufferedSampler",
-    # Lattice field features
+    # Features
     "ConcatFeatures",
     "DivFeatures",
     "FourierFeatures",
     "NonlinearFeatures",
-    "Phi4CNF",
     "PolynomialFeatures",
     # Utilities
     "Const",

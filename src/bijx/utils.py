@@ -9,6 +9,11 @@ from flax import nnx
 
 
 class Const(nnx.Variable):
+    """Mark a variable as constant.
+
+    This is provided for convenience to explicitly indicate constancy,
+    and can be used in combination with `FrozenFilter` and `Frozen`.
+    """
     pass
 
 

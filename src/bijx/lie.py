@@ -1,3 +1,8 @@
+"""
+This module provides a suite of tools for numerical operations on Lie groups,
+with a particular focus on automatic differentiation.
+"""
+
 from functools import partial, wraps
 from inspect import signature
 
@@ -7,6 +12,102 @@ import jax.numpy as jnp
 import numpy as np
 from einops import einsum
 
+#
+# Constants
+#
+
+U1_GEN = 2j * jnp.ones((1, 1, 1))
+
+SU2_GEN = 1j * jnp.array([
+    [[0, 1], [1, 0]],
+    [[0, -1j], [1j, 0]],
+    [[1, 0], [0, -1]],
+])
+
+SU3_GEN = 1j * jnp.array([
+    [[0, 1, 0], [1, 0, 0], [0, 0, 0]],
+    [[0, -1j, 0], [1j, 0, 0], [0, 0, 0]],
+    [[1, 0, 0], [0, -1, 0], [0, 0, 0]],
+    [[0, 0, 1], [0, 0, 0], [1, 0, 0]],
+    [[0, 0, -1j], [0, 0, 0], [1j, 0, 0]],
+    [[0, 0, 0], [0, 0, 1], [0, 1, 0]],
+    [[0, 0, 0], [0, 0, -1j], [0, 1j, 0]],
+    [[1 / jnp.sqrt(3), 0, 0],
+     [0, 1 / jnp.sqrt(3), 0],
+     [0, 0, -2 / jnp.sqrt(3)]],
+])
+
+
+#
+# Operations
+#
+
+def contract(*factors, trace=False, return_einsum_indices=False):
+    """Contrast chain of matrices.
+
+    Except for last two axes (which are contracted), broadcast
+    factors from left to right (opposite of numpy).
+    """
+    leading = [jnp.ndim(f) - 2 for f in factors]
+    assert all(l >= 0 for l in leading), 'all factors must be matrices (ndim >= 2)'
+
+    indices = []
+    for m, l in enumerate(leading):
+        indices.append([f'l{i}' for i in range(l)] + [f'm{m}', f'm{m + 1}'])
+
+    if trace:
+        indices[-1][-1] = 'm0'
+
+    ind_in = ', '.join(' '.join(ind) for ind in indices)
+    ind_out = ' '.join(f'l{i}' for i in range(max(leading)))
+    if not trace:
+        ind_out += f' m0 m{len(factors)}'
+    if return_einsum_indices:
+        return ind_in, ind_out
+    return einsum(*factors, f'{ind_in} -> {ind_out}')
+
+
+def scalar_prod(a, b):
+    """Compute scalar product between lie algebra elements a & b."""
+    return jnp.einsum('...ij,...ij', a.conj(), b) / 2
+
+
+def adjoint(arr):
+    return arr.conj().swapaxes(-1, -2)
+
+
+#
+# Sampling
+#
+
+@jax.vmap
+def _sample_haar(z):
+    # if this is a bottleneck, investigate https://github.com/google/jax/issues/8542
+    q, r = jnp.linalg.qr(z)
+    d = jnp.diag(r)
+    d = d / jnp.abs(d)
+    norm = jnp.prod(d) * jnp.linalg.det(q)
+    m = jnp.einsum('ij,j->ij', q, d / norm**(1/len(d)))
+    return m
+
+
+def sample_haar(rng, n, count):
+    """Sample SU(N) matrices uniformly according to Haar measure."""
+    real_part, imag_part = 1 / np.sqrt(2) * jax.random.normal(rng, (2, count, n, n))
+    z = real_part + 1j * imag_part
+    return _sample_haar(z)
+
+
+def sample_haar_lattice(rng, count, shape, n=2):
+    dim = len(shape)
+    size = count * np.prod(shape) * dim
+    lat = sample_haar(rng, n, size).reshape(count, *shape, dim, n, n)
+    return lat
+
+
+#
+# Gradients
+#
 
 def _isolate_argument(fun, argnum, *args, **kwargs):
     """Partially apply all but one argument of a function.
@@ -25,7 +126,6 @@ def _isolate_argument(fun, argnum, *args, **kwargs):
         return fun(*args, **sig.kwargs)
 
     return wrapped, arg
-
 
 
 def skew_traceless_cot(a, u):
@@ -111,6 +211,7 @@ def value_grad_divergence(fn, u, gens):
 
     The given function is assumed to give scalar outputs.
     """
+
     def component(u, gen):
         tang = gen @ u
         pot, jvp = jax.jvp(fn, [u], [tang])
@@ -205,7 +306,7 @@ def _unravel_array_into_pytree(pytree, axis, arr):
     """Unravel an array into a PyTree with a given structure."""
     leaves, treedef = jax.tree.flatten(pytree)
     axis = axis % arr.ndim
-    shapes = [arr.shape[:axis] + np.shape(l) + arr.shape[axis+1:] for l in leaves]
+    shapes = [arr.shape[:axis] + np.shape(l) + arr.shape[axis + 1:] for l in leaves]
     parts = _split(arr, np.cumsum([np.size(l) for l in leaves[:-1]]), axis)
     reshaped_parts = [
         np.reshape(x, shape) for x, shape in zip(parts, shapes)]
@@ -221,8 +322,8 @@ def _std_basis(pytree):
 
 
 def _jacfwd_unravel(input_pytree, arr):
-  return _unravel_array_into_pytree(
-    input_pytree, -1, arr)
+    return _unravel_array_into_pytree(
+        input_pytree, -1, arr)
 
 
 def _local_curve_vec(fun, gens, us):
@@ -247,7 +348,6 @@ def _local_curve_vec(fun, gens, us):
         # possibly optimize this; most of ts_dot is 0.
         tangent_out = jnp.einsum('...e,ejk,...kl->...jl', t_dot, gens, u)
         return u_dot + tangent_out
-
 
     # define a custom backward pass
     @fake_expm.defjvp

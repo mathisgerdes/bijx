@@ -1,3 +1,3 @@
-from . import scalar_vf, scalartheory
+from . import scalartheory, gauge
 
-__all__ = ["scalar_vf", "scalartheory"]
+__all__ = ["scalartheory", "gauge"]

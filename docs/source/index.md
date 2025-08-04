@@ -67,6 +67,7 @@ intro/coupling
 intro/continuous
 intro/flowjax
 intro/fourier
+intro/lie
 
 tutorials
 api

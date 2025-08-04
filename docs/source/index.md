@@ -68,6 +68,7 @@ intro/continuous
 intro/flowjax
 intro/fourier
 intro/lie
+intro/cg
 
 tutorials
 api

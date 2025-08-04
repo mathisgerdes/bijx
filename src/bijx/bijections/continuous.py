@@ -104,21 +104,26 @@ class ContFlowRK4(Bijection):
         t_end = t_end if t_end is not None else self.t_end
         steps = steps if steps is not None else self.steps
 
-        dt = (t_end - t_start) / steps
+        delta_t = t_end - t_start
+        sgn = jnp.sign(delta_t)
 
-        def vf(t, state, args):
+        def vf(s, state, args):
             x, log_density = state
-            dx_dt, dld_dt = self.vf(t, x, **args)
+            t = t_start + s * delta_t
+            dx_dt, dld_dt = jax.tree.map(
+                lambda x: sgn * x,
+                self.vf(t, x, **args),
+            )
             return dx_dt, dld_dt
 
         y0 = (x, log_density)
         y_final = odeint_rk4(
             vf,
             y0,
-            t_end,
+            1.0,
             kwargs,
-            step_size=dt,
-            start_time=t_start,
+            step_size=1.0 / steps,
+            start_time=0.0,
         )
         return y_final
 

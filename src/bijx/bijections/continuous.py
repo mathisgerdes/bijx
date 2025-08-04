@@ -105,7 +105,7 @@ class ContFlowRK4(Bijection):
         steps = steps if steps is not None else self.steps
 
         delta_t = t_end - t_start
-        sgn = jnp.sign(delta_t)
+        sgn = jnp.where(delta_t < 0, -1.0, 1.0)
 
         def vf(s, state, args):
             x, log_density = state
@@ -122,7 +122,7 @@ class ContFlowRK4(Bijection):
             y0,
             1.0,
             kwargs,
-            step_size=1.0 / steps,
+            step_size=1.0 / steps,  # cannot be a jax tracer here
             start_time=0.0,
         )
         return y_final

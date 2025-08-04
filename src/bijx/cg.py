@@ -25,8 +25,8 @@ class ButcherTableau:
         assert np.isclose(sum(b), 1)
 
         for j in range(len(c)):
-            for i in range(j+1):
-                assert a[i][j] == 0, 'only explicit methods supported'
+            for i in range(j + 1):
+                assert a[i][j] == 0, "only explicit methods supported"
 
         return cls(stages=len(c), a=a, b=b, c=c)
 
@@ -37,13 +37,13 @@ EULER = ButcherTableau.from_ab(
 )
 
 CG2 = ButcherTableau.from_ab(
-    a=[[0, 0], [1/2, 0]],
+    a=[[0, 0], [1 / 2, 0]],
     b=[0, 1],
 )
 
 CG3 = ButcherTableau.from_ab(
-    a=[[0, 0, 0], [3/4, 0, 0], [119/216, 17/108, 0]],
-    b=[13/51, -2/3, 24/17],
+    a=[[0, 0, 0], [3 / 4, 0, 0], [119 / 216, 17 / 108, 0]],
+    b=[13 / 51, -2 / 3, 24 / 17],
 )
 
 
@@ -51,8 +51,8 @@ def transport(vect, z, inverse=False):
     """Transport lie algebra element to tangent space at given point."""
     if inverse:
         z_inv = z.T.conj()
-        return jnp.einsum('...ij,...jk->...ik', vect, z_inv)
-    return jnp.einsum('...ij,...jk->...ik', vect, z)
+        return jnp.einsum("...ij,...jk->...ik", vect, z_inv)
+    return jnp.einsum("...ij,...jk->...ik", vect, z)
 
 
 def stage_reduce(y0, is_lie, *deltas):
@@ -63,17 +63,17 @@ def stage_reduce(y0, is_lie, *deltas):
     if not is_lie:
         return y0 + sum(deltas)
 
-    return reduce(
-        lambda y, v: jnp.einsum('...ij,...jk->...ik', expm(v), y),
-        deltas, y0)
+    return reduce(lambda y, v: jnp.einsum("...ij,...jk->...ik", expm(v), y), deltas, y0)
 
 
 def cg_stage(y0, vect, is_lie, ai, step_size):
     """Compute intermediate stage state."""
 
-    deltas = [jax.tree.map(lambda l: step_size * aij * l, vect[j])
-              for j, aij in enumerate(ai)
-              if aij != 0]
+    deltas = [
+        jax.tree.map(lambda vect_j: step_size * aij * vect_j, vect[j])
+        for j, aij in enumerate(ai)
+        if aij != 0
+    ]
 
     if len(deltas) == 0:
         return y0
@@ -99,21 +99,30 @@ def crouch_grossmann(vector_field, y0, args, t0, t1, step_size, is_lie, tableau=
     for arg in jax.tree_util.tree_leaves(args):
         if not isinstance(arg, core.Tracer) and not core.valid_jaxtype(arg):
             raise TypeError(
-                f'The contents of args must be arrays or scalars, but got {arg}.')
+                f"The contents of args must be arrays or scalars, but got {arg}."
+            )
 
     ts = jnp.array([t0, t1], dtype=float)
-    converted, consts = custom_derivatives.closure_convert(vector_field, ts[0], y0, args)
-    return _crouch_grossmann(is_lie, tableau, converted, step_size, ts, y0, args, *consts)
+    converted, consts = custom_derivatives.closure_convert(
+        vector_field, ts[0], y0, args
+    )
+    return _crouch_grossmann(
+        is_lie, tableau, converted, step_size, ts, y0, args, *consts
+    )
 
 
 def _bounded_next_time(cur_t, step_size, t_end):
     next_t = cur_t + step_size
-    return jnp.where(step_size > 0, jnp.minimum(next_t, t_end), jnp.maximum(next_t, t_end))
+    return jnp.where(
+        step_size > 0, jnp.minimum(next_t, t_end), jnp.maximum(next_t, t_end)
+    )
 
 
 @partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3))
 def _crouch_grossmann(is_lie, tableau, vector_field, step_size, ts, y0, *args):
-    func_ = lambda t, y: vector_field(t, y, *args)
+
+    def func_(t, y):
+        return vector_field(t, y, *args)
 
     step = partial(crouch_grossmann_step, is_lie, tableau, func_)
 
@@ -153,8 +162,8 @@ def _crouch_grossmann_rev(is_lie, tableau, vector_field, step_size, res, g):
         # need to take gradient of actual tangent vector in real space
         # below, so transport vect0 to y for all values of is_lie type.
         vect = jax.tree.map(
-            lambda v, y, lie: transport(v, y) if lie else v,
-            vect0, y, is_lie)
+            lambda v, y, lie: transport(v, y) if lie else v, vect0, y, is_lie
+        )
         return vect, vect0
 
     def augmented_ode(t, state, args):
@@ -168,11 +177,15 @@ def _crouch_grossmann_rev(is_lie, tableau, vector_field, step_size, res, g):
     # effect of moving measurement time
     # need true tangent vectors in embedding space for dot product here
     # (otherwise need more general contraction between vector and cotangent g)
-    t_bar = sum(map(lambda l, v, vbar, y: jnp.sum((transport(v, y) if l else v) * vbar),
-                    jax.tree.leaves(is_lie),
-                    jax.tree.leaves(vector_field(ts[1], y1, *args)),
-                    jax.tree.leaves(g),
-                    jax.tree.leaves(y1)))
+    t_bar = sum(
+        map(
+            lambda lie, v, vbar, y: jnp.sum((transport(v, y) if lie else v) * vbar),
+            jax.tree.leaves(is_lie),
+            jax.tree.leaves(vector_field(ts[1], y1, *args)),
+            jax.tree.leaves(g),
+            jax.tree.leaves(y1),
+        )
+    )
 
     t0_bar = -t_bar
 
@@ -186,7 +199,8 @@ def _crouch_grossmann_rev(is_lie, tableau, vector_field, step_size, res, g):
     aux_is_lie = (is_lie, _tree_fill(is_lie, False), False, _tree_fill(args, False))
 
     _, y_bar, t0_bar, args_bar = _crouch_grossmann(
-        aux_is_lie, tableau, augmented_ode, -step_size, ts[::-1], state, args)
+        aux_is_lie, tableau, augmented_ode, -step_size, ts[::-1], state, args
+    )
 
     ts_bar = jnp.array([t0_bar, t_bar])
     return (ts_bar, y_bar, *args_bar)

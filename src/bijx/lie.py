@@ -18,27 +18,30 @@ from .distributions import ArrayDistribution
 
 U1_GEN = 2j * jnp.ones((1, 1, 1))
 
-SU2_GEN = 1j * jnp.array([
-    [[0, 1], [1, 0]],
-    [[0, -1j], [1j, 0]],
-    [[1, 0], [0, -1]],
-])
+SU2_GEN = 1j * jnp.array(
+    [
+        [[0, 1], [1, 0]],
+        [[0, -1j], [1j, 0]],
+        [[1, 0], [0, -1]],
+    ]
+)
 
-SU3_GEN = 1j * jnp.array([
-    [[0, 1, 0], [1, 0, 0], [0, 0, 0]],
-    [[0, -1j, 0], [1j, 0, 0], [0, 0, 0]],
-    [[1, 0, 0], [0, -1, 0], [0, 0, 0]],
-    [[0, 0, 1], [0, 0, 0], [1, 0, 0]],
-    [[0, 0, -1j], [0, 0, 0], [1j, 0, 0]],
-    [[0, 0, 0], [0, 0, 1], [0, 1, 0]],
-    [[0, 0, 0], [0, 0, -1j], [0, 1j, 0]],
-    [[1 / jnp.sqrt(3), 0, 0],
-     [0, 1 / jnp.sqrt(3), 0],
-     [0, 0, -2 / jnp.sqrt(3)]],
-])
+SU3_GEN = 1j * jnp.array(
+    [
+        [[0, 1, 0], [1, 0, 0], [0, 0, 0]],
+        [[0, -1j, 0], [1j, 0, 0], [0, 0, 0]],
+        [[1, 0, 0], [0, -1, 0], [0, 0, 0]],
+        [[0, 0, 1], [0, 0, 0], [1, 0, 0]],
+        [[0, 0, -1j], [0, 0, 0], [1j, 0, 0]],
+        [[0, 0, 0], [0, 0, 1], [0, 1, 0]],
+        [[0, 0, 0], [0, 0, -1j], [0, 1j, 0]],
+        [[1 / jnp.sqrt(3), 0, 0], [0, 1 / jnp.sqrt(3), 0], [0, 0, -2 / jnp.sqrt(3)]],
+    ]
+)
 
 
 # -- Operations -- #
+
 
 def contract(*factors, trace=False, return_einsum_indices=False):
     """Contrast chain of matrices.
@@ -47,27 +50,29 @@ def contract(*factors, trace=False, return_einsum_indices=False):
     factors from left to right (opposite of numpy).
     """
     leading = [jnp.ndim(f) - 2 for f in factors]
-    assert all(l >= 0 for l in leading), 'all factors must be matrices (ndim >= 2)'
+    assert all(
+        lead >= 0 for lead in leading
+    ), "all factors must be matrices (ndim >= 2)"
 
     indices = []
-    for m, l in enumerate(leading):
-        indices.append([f'l{i}' for i in range(l)] + [f'm{m}', f'm{m + 1}'])
+    for m, lead in enumerate(leading):
+        indices.append([f"l{i}" for i in range(lead)] + [f"m{m}", f"m{m + 1}"])
 
     if trace:
-        indices[-1][-1] = 'm0'
+        indices[-1][-1] = "m0"
 
-    ind_in = ', '.join(' '.join(ind) for ind in indices)
-    ind_out = ' '.join(f'l{i}' for i in range(max(leading)))
+    ind_in = ", ".join(" ".join(ind) for ind in indices)
+    ind_out = " ".join(f"l{i}" for i in range(max(leading)))
     if not trace:
-        ind_out += f' m0 m{len(factors)}'
+        ind_out += f" m0 m{len(factors)}"
     if return_einsum_indices:
         return ind_in, ind_out
-    return einsum(*factors, f'{ind_in} -> {ind_out}')
+    return einsum(*factors, f"{ind_in} -> {ind_out}")
 
 
 def scalar_prod(a, b):
     """Compute scalar product between lie algebra elements a & b."""
-    return jnp.einsum('...ij,...ij', a.conj(), b) / 2
+    return jnp.einsum("...ij,...ij", a.conj(), b) / 2
 
 
 def adjoint(arr):
@@ -76,6 +81,7 @@ def adjoint(arr):
 
 # -- Sampling -- #
 
+
 @jax.vmap
 def _haar_transform(z):
     # if this is a bottleneck, investigate https://github.com/google/jax/issues/8542
@@ -83,7 +89,7 @@ def _haar_transform(z):
     d = jnp.diag(r)
     d = d / jnp.abs(d)
     norm = jnp.prod(d) * jnp.linalg.det(q)
-    m = jnp.einsum('ij,j->ij', q, d / norm**(1/len(d)))
+    m = jnp.einsum("ij,j->ij", q, d / norm ** (1 / len(d)))
     return m
 
 
@@ -119,10 +125,11 @@ class HaarDistribution(ArrayDistribution):
         return samples, jnp.zeros(batch_shape)
 
     def log_density(self, x, **kwargs):
-        return jnp.zeros(x.shape[:-2-len(self.base_shape)])
+        return jnp.zeros(x.shape[: -2 - len(self.base_shape)])
 
 
 # -- Gradients -- #
+
 
 def _isolate_argument(fun, argnum, *args, **kwargs):
     """Partially apply all but one argument of a function.
@@ -159,7 +166,7 @@ def skew_traceless_cot(a, u):
     # Df^dagger
     a = jnp.swapaxes(a, -1, -2)
     # transport to identity
-    a = jnp.einsum('...ij,jk->...ik', u, a)
+    a = jnp.einsum("...ij,jk->...ik", u, a)
     # project to skew symmetric
     a = jnp.swapaxes(a, -1, -2).conj() - a
     # project to traceless
@@ -204,7 +211,9 @@ def grad(fn, argnum=0, return_value=False, has_aux=False, algebra=skew_traceless
         u = args[argnum]
 
         if return_value:
-            val, a = jax.value_and_grad(fn, argnums=argnum, has_aux=has_aux)(*args, **kwargs)
+            val, a = jax.value_and_grad(fn, argnums=argnum, has_aux=has_aux)(
+                *args, **kwargs
+            )
         else:
             a = jax.grad(fn, argnums=argnum, has_aux=has_aux)(*args, **kwargs)
 
@@ -239,7 +248,7 @@ def value_grad_divergence(fn, u, gens):
 
     components, hess, (val, *_) = hess_prod(gens)
     tr_hess = jnp.sum(hess)
-    grad = jnp.einsum('i,ijk->jk', components, gens)
+    grad = jnp.einsum("i,ijk->jk", components, gens)
     return val, grad, tr_hess
 
 
@@ -257,11 +266,8 @@ def _local_curve(fun, gen, u, left=False):
     # define a custom backward pass
     @fake_expm.defjvp
     def fake_expm_jvp(primals, tangents):
-        t_dot, = tangents
-        if left:
-            tangent_out = u @ (t_dot * gen)
-        else:
-            tangent_out = (t_dot * gen) @ u
+        (t_dot,) = tangents
+        tangent_out = u @ (t_dot * gen) if left else (t_dot * gen) @ u
         return u, tangent_out  # here always assume t == 0
 
     def curve(t):
@@ -303,9 +309,9 @@ def curve_grad(fun, direction, argnum=0, has_aux=False, return_value=False, left
         curve_fun = _local_curve(wrapped, direction, u, left=left)
 
         if return_value:
-            return jax.jvp(curve_fun, (0.,), (1.,), has_aux=has_aux)
+            return jax.jvp(curve_fun, (0.0,), (1.0,), has_aux=has_aux)
         else:
-            return jax.jacfwd(curve_fun, has_aux=has_aux)(0.)
+            return jax.jacfwd(curve_fun, has_aux=has_aux)(0.0)
 
     return grad
 
@@ -321,10 +327,11 @@ def _unravel_array_into_pytree(pytree, axis, arr):
     """Unravel an array into a PyTree with a given structure."""
     leaves, treedef = jax.tree.flatten(pytree)
     axis = axis % arr.ndim
-    shapes = [arr.shape[:axis] + np.shape(l) + arr.shape[axis + 1:] for l in leaves]
-    parts = _split(arr, np.cumsum([np.size(l) for l in leaves[:-1]]), axis)
-    reshaped_parts = [
-        np.reshape(x, shape) for x, shape in zip(parts, shapes)]
+    shapes = [
+        arr.shape[:axis] + np.shape(leaf) + arr.shape[axis + 1 :] for leaf in leaves
+    ]
+    parts = _split(arr, np.cumsum([np.size(leaf) for leaf in leaves[:-1]]), axis)
+    reshaped_parts = [np.reshape(x, shape) for x, shape in zip(parts, shapes)]
     return jax.tree.unflatten(treedef, reshaped_parts)
 
 
@@ -337,8 +344,7 @@ def _std_basis(pytree):
 
 
 def _jacfwd_unravel(input_pytree, arr):
-    return _unravel_array_into_pytree(
-        input_pytree, -1, arr)
+    return _unravel_array_into_pytree(input_pytree, -1, arr)
 
 
 def _local_curve_vec(fun, gens, us):
@@ -351,8 +357,10 @@ def _local_curve_vec(fun, gens, us):
 
     dim = len(gens)  # dimension of vector space
     for leaf in leaves:
-        assert leaf.shape[-2:] == gens.shape[-2:], \
-            f'SU(N) groups must match, expected {gens.shape[-2:]} but got {leaf.shape[-2:]}'
+        assert leaf.shape[-2:] == gens.shape[-2:], (
+            f"SU(N) groups must match, expected {gens.shape[-2:]} "
+            f"but got {leaf.shape[-2:]}"
+        )
 
     @jax.custom_jvp
     def fake_expm(ts, us):
@@ -361,7 +369,7 @@ def _local_curve_vec(fun, gens, us):
     def _contract(t, t_dot, u, u_dot):
         chex.assert_shape([t, t_dot], (*u.shape[:-2], dim))
         # possibly optimize this; most of ts_dot is 0.
-        tangent_out = jnp.einsum('...e,ejk,...kl->...jl', t_dot, gens, u)
+        tangent_out = jnp.einsum("...e,ejk,...kl->...jl", t_dot, gens, u)
         return u_dot + tangent_out
 
     # define a custom backward pass
@@ -381,16 +389,14 @@ def _local_curve_vec(fun, gens, us):
 
 def path_grad(fun, gens, us):
     """Compute first derivative with respect to (each) matrix input."""
-    ts = jax.tree.map(
-        lambda u: np.zeros(u.shape[:-2] + (len(gens),)), us)
+    ts = jax.tree.map(lambda u: np.zeros(u.shape[:-2] + (len(gens),)), us)
 
     ts_basis = _std_basis(ts)
     curve = _local_curve_vec(fun, gens, us)
     jvp = partial(jax.jvp, curve, (ts,))
     out, jac = jax.vmap(jvp, out_axes=(None, -1))((ts_basis,))
 
-    jac_tree = jax.tree.map(
-        partial(_jacfwd_unravel, ts), jac)
+    jac_tree = jax.tree.map(partial(_jacfwd_unravel, ts), jac)
 
     return out, jac_tree
 
@@ -405,20 +411,19 @@ def path_grad2(fun, gens, us):
 
     @partial(jax.vmap, in_axes=(None, 0), out_axes=(None, -1, -1))
     def grad2_fn(ts, vec):
-        grad, tangents, out = jax.jvp(partial(grad_fn, vec=vec), (ts,), (vec,), has_aux=True)
+        grad, tangents, out = jax.jvp(
+            partial(grad_fn, vec=vec), (ts,), (vec,), has_aux=True
+        )
         return out, grad, tangents
 
-    ts = jax.tree.map(
-        lambda u: np.zeros(u.shape[:-2] + (len(gens),)), us)
+    ts = jax.tree.map(lambda u: np.zeros(u.shape[:-2] + (len(gens),)), us)
     ts_basis = _std_basis(ts)
 
     out, jac, jac2 = grad2_fn(ts, ts_basis)
 
-    jac = jax.tree.map(
-        partial(_jacfwd_unravel, ts), jac)
+    jac = jax.tree.map(partial(_jacfwd_unravel, ts), jac)
 
-    jac2 = jax.tree.map(
-        partial(_jacfwd_unravel, ts), jac2)
+    jac2 = jax.tree.map(partial(_jacfwd_unravel, ts), jac2)
 
     return out, jac, jac2
 
@@ -441,9 +446,7 @@ def path_div(fun, gens, us):
         )
         return out, tangents
 
-    ts = jax.tree_util.tree_map(
-        lambda u: np.zeros(u.shape[:-2] + (len(gens),)), us
-    )
+    ts = jax.tree_util.tree_map(lambda u: np.zeros(u.shape[:-2] + (len(gens),)), us)
     ts_basis = _std_basis(ts)
 
     out, tangents = grad2_fn(ts, ts_basis)

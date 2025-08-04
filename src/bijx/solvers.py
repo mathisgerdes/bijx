@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import typing as tp
 from functools import partial
 
 import diffrax
@@ -22,7 +21,6 @@ import flax.struct
 import flax.typing as ftp
 import jax
 import jax.numpy as jnp
-from flax import nnx
 from jax import core, custom_derivatives
 from jax.experimental.ode import api_util, ravel_first_arg
 from jax.flatten_util import ravel_pytree

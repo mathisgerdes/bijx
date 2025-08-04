@@ -388,6 +388,7 @@ class BetaStretch(ScalarBijection):
         r = (y / (1 - y)) ** (1 / a)
         return r / (r + 1)
 
+
 __all__ = [
     "AffineLinear",
     "BetaStretch",

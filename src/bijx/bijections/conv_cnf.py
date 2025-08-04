@@ -8,13 +8,13 @@ from flax import nnx
 
 from ..nn import embeddings
 from ..nn.conv import ConvSym, kernel_d4
-from ..utils import ShapeInfo
 from ..nn.features import (
     ConcatFeatures,
     FourierFeatures,
     NonlinearFeatures,
     PolynomialFeatures,
 )
+from ..utils import ShapeInfo
 
 
 def _contract_with_emb(par, t_emb):

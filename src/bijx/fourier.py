@@ -58,9 +58,7 @@ class FourierMeta:
         cp_from, cp_to = [], []
 
         # Enforce reality constraints for k = -k mod N (F(k) must be real)
-        edges = [
-            [0] if n % 2 != 0 else [0, n // 2] for n in real_shape
-        ]
+        edges = [[0] if n % 2 != 0 else [0, n // 2] for n in real_shape]
         for edge_idx in product(*edges):
             if edge_idx[-1] < rfft_shape[-1]:
                 imag_mask[edge_idx] = False

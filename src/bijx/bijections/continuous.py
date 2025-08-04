@@ -211,7 +211,6 @@ class ContFlowCG(Bijection):
         )
 
 
-
 def _ndim_jacobian(func, event_dim):
 
     info = ShapeInfo(event_dim=event_dim)
@@ -219,7 +218,7 @@ def _ndim_jacobian(func, event_dim):
     def func_flat(x_flat, event_shape):
         x = x_flat.reshape(x_flat.shape[:-1] + event_shape)
         out = func(x)
-        return out.reshape(out.shape[:-len(event_shape)] + (-1,))
+        return out.reshape(out.shape[: -len(event_shape)] + (-1,))
 
     @partial(jax.vmap, in_axes=(None, 0), out_axes=(None, -1))
     def _jvp(x, tang):

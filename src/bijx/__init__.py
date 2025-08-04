@@ -63,7 +63,13 @@ from .fourier import FFTRep, FourierData, FourierMeta, fft_momenta
 from .mcmc import IMH, IMHInfo, IMHState
 from .nn import conv, embeddings, features, nets
 from .nn.conv import ConvSym, kernel_d4, kernel_equidist
-from .nn.embeddings import KernelFourier, KernelGauss, KernelLin, KernelReduced, PositionalEmbedding
+from .nn.embeddings import (
+    KernelFourier,
+    KernelGauss,
+    KernelLin,
+    KernelReduced,
+    PositionalEmbedding,
+)
 from .nn.features import (
     ConcatFeatures,
     DivFeatures,
@@ -74,7 +80,6 @@ from .nn.features import (
 from .samplers import BufferedSampler, Transformed
 from .solvers import DiffraxConfig, odeint_rk4
 from .utils import (
-
     Const,
     FrozenFilter,
     ShapeInfo,

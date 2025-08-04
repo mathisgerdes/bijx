@@ -79,6 +79,8 @@ For development and testing, install as an editable package with all dependencie
 pip install -e ".[dev]"
 ```
 
+To keep the codebase tidy, please install `pip install pre-commit` and run `pre-commit install` before committing changes.
+
 ## Documentation
 
 To compile and open a local server for the documentation, run `make livehtml` in the `docs/` directory.

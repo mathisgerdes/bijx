@@ -112,6 +112,6 @@ bijx/
 ├── cg/                   # Crouch-Grossmann ODE integrators
 │
 └── lattice/              # Application: Lattice Field Theory
-    ├── scalartheory.py   # Action and observables for phi^4 theory
+    ├── scalar.py         # Action and observables for phi^4 theory
     └── gauge.py          # Gauge field symmetry operations
 ```

@@ -52,7 +52,7 @@ from .bijections.scalar import (
     Tanh,
 )
 from .distributions import (
-    ArrayPrior,
+    ArrayDistribution,
     DiagonalGMM,
     Distribution,
     IndependentNormal,
@@ -130,7 +130,7 @@ __all__ = [
     "rational_quadratic_spline",
     "checker_mask",
     # Distributions
-    "ArrayPrior",
+    "ArrayDistribution",
     "IndependentNormal",
     "IndependentUniform",
     "DiagonalGMM",

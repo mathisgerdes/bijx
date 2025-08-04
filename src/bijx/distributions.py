@@ -43,7 +43,7 @@ class Distribution(nnx.Module):
         return jnp.exp(self.log_density(x, **kwargs))
 
 
-class ArrayPrior(Distribution):
+class ArrayDistribution(Distribution):
 
     def __init__(self, event_shape: tuple[int, ...], rngs: nnx.Rngs | None = None):
         self.event_shape = event_shape
@@ -66,7 +66,7 @@ class ArrayPrior(Distribution):
         return self.shape_info.process_event(x.shape)[0]
 
 
-class IndependentNormal(ArrayPrior):
+class IndependentNormal(ArrayDistribution):
     def sample(
         self,
         batch_shape: tuple[int, ...] = (),
@@ -84,7 +84,7 @@ class IndependentNormal(ArrayPrior):
         return logp
 
 
-class IndependentUniform(ArrayPrior):
+class IndependentUniform(ArrayDistribution):
     def sample(
         self,
         batch_shape: tuple[int, ...] = (),

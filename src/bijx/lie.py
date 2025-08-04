@@ -12,9 +12,9 @@ import jax.numpy as jnp
 import numpy as np
 from einops import einsum
 
-#
-# Constants
-#
+from .distributions import ArrayDistribution
+
+# -- Constants -- #
 
 U1_GEN = 2j * jnp.ones((1, 1, 1))
 
@@ -38,9 +38,7 @@ SU3_GEN = 1j * jnp.array([
 ])
 
 
-#
-# Operations
-#
+# -- Operations -- #
 
 def contract(*factors, trace=False, return_einsum_indices=False):
     """Contrast chain of matrices.
@@ -76,12 +74,10 @@ def adjoint(arr):
     return arr.conj().swapaxes(-1, -2)
 
 
-#
-# Sampling
-#
+# -- Sampling -- #
 
 @jax.vmap
-def _sample_haar(z):
+def _haar_transform(z):
     # if this is a bottleneck, investigate https://github.com/google/jax/issues/8542
     q, r = jnp.linalg.qr(z)
     d = jnp.diag(r)
@@ -91,23 +87,42 @@ def _sample_haar(z):
     return m
 
 
-def sample_haar(rng, n, count):
+def _sample_haar(rng, n, count):
     """Sample SU(N) matrices uniformly according to Haar measure."""
     real_part, imag_part = 1 / np.sqrt(2) * jax.random.normal(rng, (2, count, n, n))
     z = real_part + 1j * imag_part
-    return _sample_haar(z)
+    return _haar_transform(z)
 
 
-def sample_haar_lattice(rng, count, shape, n=2):
-    dim = len(shape)
-    size = count * np.prod(shape) * dim
-    lat = sample_haar(rng, n, size).reshape(count, *shape, dim, n, n)
-    return lat
+def sample_haar(rng, n=2, batch_shape=()):
+    if batch_shape == ():
+        z = _sample_haar(rng, n, 1)
+        return jnp.squeeze(z, axis=0)
+    size = np.prod(batch_shape)
+    return _sample_haar(rng, n, size).reshape(*batch_shape, n, n)
 
 
-#
-# Gradients
-#
+class HaarDistribution(ArrayDistribution):
+    def __init__(self, n, base_shape=(), rngs=None):
+        super().__init__(event_shape=base_shape + (n, n), rngs=rngs)
+        self.base_shape = base_shape
+        self.n = n
+
+    @classmethod
+    def periodic_gauge_lattice(cls, n, lat_shape, rngs=None):
+        base_shape = (*lat_shape, len(lat_shape))
+        return cls(n, base_shape, rngs)
+
+    def sample(self, batch_shape, rng=None, **kwargs):
+        rng = self._get_rng(rng)
+        samples = sample_haar(rng, self.n, batch_shape + self.base_shape)
+        return samples, jnp.zeros(batch_shape)
+
+    def log_density(self, x, **kwargs):
+        return jnp.zeros(x.shape[:-2-len(self.base_shape)])
+
+
+# -- Gradients -- #
 
 def _isolate_argument(fun, argnum, *args, **kwargs):
     """Partially apply all but one argument of a function.

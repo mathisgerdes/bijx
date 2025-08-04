@@ -1,12 +1,11 @@
 # Tutorials
 
-Here you can find a collection of tutorials that showcase the features of `bijx`.
+The following examples showcase how features of `bijx` can be combined into a more complete workflow including training.
 
 ```{toctree}
 :maxdepth: 2
-:caption: Tutorials:
+:caption: Examples:
 
-tutorials/basics
 tutorials/continuous
 tutorials/scalar-theory
 ```

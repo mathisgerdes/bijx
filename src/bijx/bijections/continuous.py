@@ -11,6 +11,7 @@ import jax
 import jax.numpy as jnp
 from jax_autovmap import auto_vmap
 
+from .. import cg
 from ..solvers import DiffraxConfig, odeint_rk4
 from ..utils import ShapeInfo
 from .base import Bijection
@@ -132,6 +133,78 @@ class ContFlowRK4(Bijection):
             t_end=self.t_start,
             **kwargs,
         )
+
+
+class ContFlowCG(Bijection):
+    def __init__(
+        self,
+        # (t, x, **kwargs) -> dx/dt, d(log_density)/dt
+        vf: tp.Callable,
+        # default to single gauge object
+        is_lie: tp.Any = True,
+        *,
+        t_start: float = 0,
+        t_end: float = 1,
+        steps: int = 20,
+        tableau: cg.ButcherTableau = cg.CG3,
+    ):
+        self.vf = vf
+        self.is_lie = is_lie
+        self.t_start = t_start
+        self.t_end = t_end
+        self.steps = steps
+        self.tableau = tableau
+
+    def solve_flow(
+        self,
+        x,
+        log_density,
+        *,
+        # integration parameters
+        t_start=None,
+        t_end=None,
+        steps=None,
+        # arguments to vector field
+        **kwargs,
+    ):
+        t_start = t_start if t_start is not None else self.t_start
+        t_end = t_end if t_end is not None else self.t_end
+        steps = steps if steps is not None else self.steps
+
+        dt = (t_end - t_start) / steps
+
+        def vf(t, state, args):
+            x, log_density = state
+            dx_dt, dld_dt = self.vf(t, x, **args)
+            return dx_dt, dld_dt
+
+        y0 = (x, log_density)
+        is_lie = (self.is_lie, False)
+
+        y_final = cg.crouch_grossmann(
+            vf,
+            y0,
+            kwargs,
+            t_start,
+            t_end,
+            step_size=dt,
+            is_lie=is_lie,
+            tableau=self.tableau,
+        )
+        return y_final
+
+    def forward(self, x, log_density, **kwargs):
+        return self.solve_flow(x, log_density, **kwargs)
+
+    def reverse(self, x, log_density, **kwargs):
+        return self.solve_flow(
+            x,
+            log_density,
+            t_start=self.t_end,
+            t_end=self.t_start,
+            **kwargs,
+        )
+
 
 
 def _ndim_jacobian(func, event_dim):

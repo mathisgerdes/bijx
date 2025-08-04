@@ -20,6 +20,7 @@ from .bijections import (
     BinaryMask,
     Chain,
     ContFlowDiffrax,
+    ContFlowCG,
     ContFlowRK4,
     ConvCNF,
     ExpandDims,
@@ -117,6 +118,7 @@ __all__ = [
     "Shift",
     "SqueezeDims",
     "AutoJacVF",
+    "ContFlowCG",
     "ConvCNF",
     # Convolution
     "ConvSym",

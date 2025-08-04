@@ -3,7 +3,7 @@ Bijections package.
 """
 
 from .base import Bijection, ApplyBijection, Chain, ScanChain, Frozen, Inverse
-from .continuous import ContFlowDiffrax, ContFlowRK4, AutoJacVF
+from .continuous import ContFlowDiffrax, ContFlowRK4, ContFlowCG, AutoJacVF
 from .conv_cnf import ConvCNF
 from .coupling import (
     checker_mask,
@@ -31,6 +31,7 @@ __all__ = [
     # Continuous flows
     "ContFlowDiffrax",
     "ContFlowRK4",
+    "ContFlowCG",
     "AutoJacVF",
     "ConvCNF",
     # Coupling layers

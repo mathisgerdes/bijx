@@ -48,6 +48,7 @@ from .bijections.scalar import (
     GaussianCDF,
     Power,
     Sigmoid,
+    Sinh,
     SoftPlus,
     Tan,
     Tanh,

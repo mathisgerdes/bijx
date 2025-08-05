@@ -127,8 +127,8 @@ class KernelFourier(Embedding):
         """Truncated fourier expansion on given interval.
 
         Given an input x to the model, the output is an array like
-                ``[1, sin(2 pi x), cos(2 pi x), sin(4 pi x), ...]``
-            (except in a different order).
+        ``[1, sin(2 pi x), cos(2 pi x), sin(4 pi x), ...]``
+        (except in a different order).
 
         Args:
             feature_count: The number of Fourier-terms.

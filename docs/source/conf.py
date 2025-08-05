@@ -33,6 +33,7 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
+    "numpydoc",
     "sphinx.ext.mathjax",
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
@@ -44,8 +45,8 @@ extensions = [
 
 # Custom function to handle autodoc warnings and improve API cleanliness
 def autodoc_skip_member(app, what, name, obj, skip, options):
-    # Skip all dunder methods except __init__
-    if name.startswith("_") and name != "__init__":
+    # Skip all methods starting with _
+    if name.startswith("_"):
         return True
 
     # Skip nnx.Module inherited methods that clutter the docs
@@ -90,11 +91,13 @@ def setup(app):
 autosummary_generate = True
 autosummary_ignore_module_all = False
 
+# -- Numpydoc settings ---
+numpydoc_show_class_members = False
+
 # -- Autodoc settings for better API documentation ---
 autodoc_default_options = {
     "members": True,
     "member-order": "bysource",
-    "special-members": "__init__",
     "undoc-members": True,
     "exclude-members": "__weakref__",
     "show-inheritance": True,

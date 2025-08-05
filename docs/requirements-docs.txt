@@ -1,14 +1,11 @@
-# Sphinx and extensions
 sphinx
+sphinx-autobuild
 furo
 myst-nb
 sphinx-autodoc-typehints
 sphinx-copybutton
-sphinx-autobuild
-
-# For notebooks and examples
-jupyter
+ipykernel
+ipywidgets
 matplotlib
-jax
-jaxlib
 numpy
+numpydoc

@@ -95,12 +95,12 @@ def odeint_rk4(fun, y0, end_time, *args, step_size, start_time=0):
     """Fixed step-size Runge-Kutta implementation.
 
     Args:
-        fun: Function (t, y, *args) -> dy/dt giving the time derivative at
+        fun: Function ``(t, y, *args) -> dy/dt`` giving the time derivative at
             the current position y and time t. The output must have the same
             shape and type as `y0`.
         y0: Initial value.
         end_time: Final time of the integration.
-        *args: Additional arguments for `func`.
+        ``*args``: Additional arguments for `func`.
         step_size: Step size for the fixed-grid solver.
         start_time: Initial time of the integration.
     Returns:

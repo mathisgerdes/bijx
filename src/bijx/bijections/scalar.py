@@ -195,7 +195,7 @@ class SoftPlus(ScalarBijection):
     """Numerically stable exponential transform.
 
     Type: [-∞, ∞] → [0, ∞]
-    Transform: log(1 + exp(x)) with stable computation for large |x|.
+    Transform: log(1 + exp(x)) with stable computation for large ``|x|``.
     """
 
     def log_jac(self, x, y, **kwargs):

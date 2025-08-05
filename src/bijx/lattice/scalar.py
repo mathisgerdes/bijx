@@ -144,8 +144,7 @@ def two_point(phis: jnp.ndarray, average: bool = True) -> jnp.ndarray:
     """Estimate ``G(x) = <phi(0) phi(x)>``.
 
     Translational invariance is assumed, so to improve the estimate we compute
-        ``mean_y <phi(y) phi(x+y)>``
-    using periodic boundary conditions.
+    ``mean_y <phi(y) phi(x+y)>`` using periodic boundary conditions.
 
     Args:
         phis: Samples of field configurations of shape
@@ -165,8 +164,8 @@ def two_point_central(phis: jnp.ndarray) -> jnp.ndarray:
     """Estimate ``G_c(x) = <phi(0) phi(x)> - <phi(0)> <phi(x)>``.
 
     Translational invariance is assumed, so to improve the estimate we compute
-        ``mean_y <phi(y) phi(x+y)> - <phi(x)> mean_y <phi(x+y)>``
-    using periodic boundary conditions.
+    ``mean_y <phi(y) phi(x+y)> - <phi(x)> mean_y <phi(x+y)>`` using periodic
+    boundary conditions.
 
     Args:
         phis: Samples of field configurations of shape

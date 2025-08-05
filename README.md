@@ -85,6 +85,21 @@ To keep the codebase tidy, please install `pip install pre-commit` and run `pre-
 
 To compile and open a local server for the documentation, run `make livehtml` in the `docs/` directory.
 
+## Testing
+
+Run the tests, including docstring examples:
+
+```bash
+# Run all tests including doctests
+python -m pytest tests/ src/bijx/ --doctest-modules
+
+# Run only doctests
+python -m pytest src/bijx/ --doctest-modules -v
+
+# Test specific module
+python -m pytest src/bijx/utils.py --doctest-modules -v
+```
+
 ## Module Layout
 
 The library is organized into core mathematical tools, machine learning components, and specific applications.

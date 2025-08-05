@@ -53,6 +53,8 @@ packages = ["bijx"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
+addopts = "--doctest-modules"
+doctest_optionflags = "NORMALIZE_WHITESPACE"
 
 [tool.mypy]
 python_version = "3.10"

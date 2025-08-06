@@ -2,7 +2,15 @@
 Bijections package.
 """
 
-from .base import Bijection, ApplyBijection, Chain, ScanChain, Frozen, Inverse
+from .base import (
+    Bijection,
+    ApplyBijection,
+    Chain,
+    ScanChain,
+    Frozen,
+    Inverse,
+    CondInverse,
+)
 from .continuous import ContFlowDiffrax, ContFlowRK4, ContFlowCG, AutoJacVF
 from .conv_cnf import ConvCNF
 from .coupling import (
@@ -28,6 +36,7 @@ __all__ = [
     "ScanChain",
     "Frozen",
     "Inverse",
+    "CondInverse",
     # Continuous flows
     "ContFlowDiffrax",
     "ContFlowRK4",

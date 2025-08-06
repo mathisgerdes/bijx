@@ -1,5 +1,23 @@
-"""
-Coupling layer bijections.
+r"""Coupling layer bijections for normalizing flows.
+
+This module implements coupling layers, which are fundamental building blocks
+of normalizing flows that maintain tractable Jacobian determinants by
+transforming only a subset of input dimensions at a time.
+
+Coupling layers work by:
+1. Splitting input into two parts using a binary mask
+2. Using one part to parameterize a bijection applied to the other part
+3. Keeping the first part unchanged to ensure invertibility
+
+Key components:
+- :class:`BinaryMask`: Flexible binary masking with indexing and boolean operations
+- :class:`ModuleReconstructor`: Parameter management for dynamic module reconstruction
+- :class:`GeneralCouplingLayer`: Full coupling layer implementation with mask management
+
+Note:
+    The general coupling layer implemented here permits both bijections that
+    fundamentally act on scalar values, as well as more general bijections
+    that could transform blocks of values in a way that does not factorize.
 """
 
 import functools
@@ -17,26 +35,42 @@ from .base import Bijection
 
 
 def _indices_to_mask(indices, event_shape):
+    """Convert index tuple to boolean mask array."""
     mask = jnp.full(event_shape, False)
     mask = mask.at[indices].set(True)
     return mask
 
 
 class BinaryMask(Bijection):
-    """
-    Binary mask.
+    r"""Binary mask for coupling layer split/merge operations.
 
-    This class is designed to be a pytree node while providing both
-    multiplication-based and indexing-based masking operations.
+    This class provides a flexible masking utility that supports both
+    multiplication-based and indexing-based masking operations, registered
+    as a jax pytree node.
 
-    Use `from_boolean_mask` or `from_indices` to create a mask.
+    The mask can be used in two main ways:
+    1. As a masking operator: Use ``mask * array`` or ``array[mask.indices()]``
+    2. As a bijection: Splits input in forward pass, merges in reverse pass
 
-    Then to apply mask, either use `mask * array` or `array[mask.indices()]`.
+    Type: $\mathbb{R}^n \to \mathbb{R}^{n_1} \times \mathbb{R}^{n_2}$ (forward)
+    Transform: Splits input according to binary mask pattern
 
-    The mask can be flipped with `~mask` or `mask.flip()`.
+    Args:
+        primary_indices: Tuple of arrays specifying primary (True) indices.
+        event_shape: Shape of the event dimensions being masked.
+        masks: Optional precomputed boolean mask pair (primary, secondary).
+        secondary_indices: Optional secondary (False) indices.
 
-    For convenience this class can also be used as a bijection,
-    which splits the input in the forward pass and merges it in the reverse pass.
+    The mask can be flipped with ``~mask`` or :meth:`flip()` to swap primary/secondary.
+    Use :meth:`from_boolean_mask` or :meth:`from_indices` for convenient construction.
+
+    Example:
+        >>> # Create checkerboard mask
+        >>> mask = checker_mask((4, 4), parity=0)
+        >>> x = jnp.ones((4, 4))
+        >>> primary, secondary = mask.split(x)
+        >>> reconstructed = mask.merge(primary, secondary)
+        >>> # reconstructed == x
     """
 
     masks: Const
@@ -63,45 +97,80 @@ class BinaryMask(Bijection):
 
     @property
     def count_primary(self):
+        """Number of elements in the primary (True) mask region."""
         return self.primary_indices.value[0].size
 
     @property
     def count_secondary(self):
+        """Number of elements in the secondary (False) mask region."""
         return self.secondary_indices.value[0].size
 
     @property
     def counts(self):
+        """Tuple of (primary_count, secondary_count)."""
         return self.count_primary, self.count_secondary
 
     @property
     def event_size(self):
+        """Total number of elements in the event shape."""
         return sum(self.counts)
 
     @classmethod
     def from_indices(
         cls, indices: tuple[np.ndarray, ...], event_shape: tuple[int, ...]
     ):
-        """Creates a mask from indices."""
+        """Create mask from index arrays.
+
+        Args:
+            indices: Tuple of index arrays specifying primary mask positions.
+            event_shape: Shape of the event dimensions being masked.
+
+        Returns:
+            New BinaryMask instance.
+        """
         return cls(indices, event_shape)
 
     @classmethod
     def from_boolean_mask(cls, mask: jax.Array):
-        """Creates a mask from a boolean array."""
+        """Create mask from boolean array.
+
+        Args:
+            mask: Boolean array where True indicates primary mask positions.
+
+        Returns:
+            New BinaryMask instance with same pattern as input mask.
+        """
         return cls(np.where(mask), mask.shape)
 
     @property
     def boolean_mask(self):
+        """Primary boolean mask array."""
         return self.masks.value[0]
 
     def indices(
         self, extra_channel_dims: int = 0, batch_safe: bool = True, primary: bool = True
     ):
+        """Get indexing tuple for array access.
+
+        Args:
+            extra_channel_dims: Number of trailing channel dimensions to preserve.
+            batch_safe: If True, include ellipsis for batch dimensions.
+            primary: If True, return primary indices; otherwise secondary.
+
+        Returns:
+            Indexing tuple suitable for array subscripting.
+        """
         ind = (...,) if batch_safe else ()
         ind += self.primary_indices.value if primary else self.secondary_indices.value
         ind += (np.s_[:],) * extra_channel_dims
         return ind
 
     def flip(self):
+        """Create flipped mask with primary/secondary swapped.
+
+        Returns:
+            New BinaryMask with primary and secondary regions swapped.
+        """
         return self.__class__(
             self.secondary_indices.value,
             self.event_shape,
@@ -110,12 +179,35 @@ class BinaryMask(Bijection):
         )
 
     def split(self, array, extra_channel_dims: int = 0, batch_safe: bool = True):
+        """Split array into primary and secondary parts according to mask.
+
+        Args:
+            array: Input array to split.
+            extra_channel_dims: Number of trailing channel dimensions to preserve.
+            batch_safe: If True, handle arbitrary batch dimensions.
+
+        Returns:
+            Tuple of (primary_part, secondary_part) arrays.
+        """
         return (
             array[self.indices(extra_channel_dims, batch_safe, primary=True)],
             array[self.indices(extra_channel_dims, batch_safe, primary=False)],
         )
 
     def merge(self, primary, secondary, extra_channel_dims: int = 0):
+        """Merge primary and secondary parts back into full array.
+
+        Reconstructs the original array structure by placing primary and
+        secondary parts at their respective mask positions.
+
+        Args:
+            primary: Primary part array with masked elements.
+            secondary: Secondary part array with complementary elements.
+            extra_channel_dims: Number of trailing channel dimensions.
+
+        Returns:
+            Merged array with original event shape restored.
+        """
         # Shape analysis: primary is (*batch_dims, num_primary_indices, *channel_dims)
         if extra_channel_dims > 0:
             batch_shape = primary.shape[: -1 - extra_channel_dims]
@@ -137,19 +229,63 @@ class BinaryMask(Bijection):
         return output
 
     def forward(self, x, log_density):
+        """Split input as bijection forward pass.
+
+        When used as a bijection, forward pass splits the input into
+        primary and secondary parts according to the mask.
+
+        Args:
+            x: Input array to split.
+            log_density: Input log density (unchanged).
+
+        Returns:
+            Tuple of ((primary_part, secondary_part), unchanged_log_density).
+        """
         return self.split(x), log_density
 
     def reverse(self, x, log_density):
+        """Merge parts as bijection reverse pass.
+
+        When used as a bijection, reverse pass merges the split parts
+        back into the original array structure.
+
+        Args:
+            x: Tuple of (primary_part, secondary_part) to merge.
+            log_density: Input log density (unchanged).
+
+        Returns:
+            Tuple of (merged_array, unchanged_log_density).
+        """
         return self.merge(x[0], x[1]), log_density
 
     # override unary ~ operator
     def __invert__(self):
+        """Flip mask using ~ operator (equivalent to flip())."""
+        # note that this is distinct from mask.invert(), as a bijection
         return self.flip()
 
     def __mul__(self, array: jax.Array):
+        """Element-wise multiplication with boolean mask.
+
+        Args:
+            array: Array to mask.
+
+        Returns:
+            Array with masked elements zeroed out.
+        """
         return self.boolean_mask * array
 
     def __rmul__(self, array: jax.Array):
+        """Right multiplication with boolean mask.
+
+        Handles array * mask syntax with appropriate error checking.
+
+        Args:
+            array: Array to mask.
+
+        Returns:
+            Array with masked elements zeroed out.
+        """
         if jnp.ndim(array) < len(self.event_shape):
             # numpy automatically tries to vectorize multiplication;
             # this does not happen with jax arrays
@@ -158,14 +294,24 @@ class BinaryMask(Bijection):
 
 
 def checker_mask(shape, parity: bool):
-    """Checkerboard mask.
+    """Create checkerboard pattern binary mask.
+
+    Generates a checkerboard (alternating) pattern mask commonly used in
+    coupling layers for spatial data like images. The pattern alternates
+    between True/False based on the sum of coordinates.
 
     Args:
-        shape: Spacial dimensions of input.
-        parity: Parity of mask.
+        shape: Spatial dimensions of the input array.
+        parity: Starting parity - if True, (0,0,...) position starts as True.
 
     Returns:
-        BinaryMask instance with checkerboard pattern.
+        :class:`BinaryMask` instance with checkerboard pattern.
+
+    Example:
+        >>> # 2x2 checkerboard with parity=0
+        >>> mask = checker_mask((2, 2), parity=False)
+        >>> mask.boolean_mask.shape
+        (2, 2)
     """
     idx_shape = np.ones_like(shape)
     idc = []
@@ -353,12 +499,43 @@ jax.tree_util.register_pytree_node(
 
 @flax.struct.dataclass
 class AutoVmapReconstructor:
-    """Wrap reconstruction + function call with vmap to support batching.
+    r"""Automatic vectorization for module reconstruction with batched parameters.
 
-    Warnings:
-        - Need to use param.value inside the module, with implicit value usage
-          sometimes get error with vmap nnx.Param is not a valid jax type.
-        - Currently keyword arguments cannot be vmap'd over.
+    This class provides a solution for bijections that do not natively support
+    batching over parameters, but can also be used generally.
+    It wraps :class:`ModuleReconstructor` and automatically applies ``jax.vmap``
+    to function calls, enabling parameter batching for any bijection.
+
+    The wrapper intercepts function calls and applies vectorization over the parameter
+    batch dimensions while handling input rank specifications correctly. This is
+    particularly useful for coupling layers where different parameter sets need to
+    be applied to different elements of the input.
+
+    Key features:
+        - Transparent function call vectorization via ``jax.vmap``
+        - Automatic parameter batch dimension handling
+        - Dynamic function signature modification to include input rank specifications
+        - Support for both callable attributes and direct method calls
+
+    Warning:
+        Parameters inside modules must use explicit ``.value`` access as implicit
+        parameter access can cause vmap errors with NNX Param types.
+        Keyword arguments cannot be vectorized over - only positional arguments
+        batching via ``input_ranks`` specification is supported.
+
+    Example:
+        >>> batch_size, event_size = 2, 4
+        >>> # Bijection that doesn't support parameter batching
+        >>> template = bijx.ModuleReconstructor(SomeBijection())
+        >>> batched_params = jnp.zeros((batch_size, template.params_total_size))
+        >>>
+        >>> # Create auto-vmapped version
+        >>> auto_bij = template.from_params(batched_params, auto_vmap=True)
+        >>>
+        >>> # Function calls are automatically vectorized
+        >>> x = jnp.ones((batch_size, event_size))
+        >>> ld = jnp.zeros((batch_size,))
+        >>> y, log_det = auto_bij.forward(x, ld, input_ranks=(1, 0))
     """
 
     reconstructor: ModuleReconstructor
@@ -423,6 +600,62 @@ class AutoVmapReconstructor:
 
 
 class GeneralCouplingLayer(Bijection):
+    r"""General coupling layer with flexible masking and bijection support.
+
+    Implements the fundamental coupling layer transformation where input is split
+    into active and passive components, with the passive part conditioning the
+    transformation applied to the active part. This maintains invertibility while
+    enabling complex parameter-dependent transformations.
+
+    Key features:
+        - Flexible masking via :class:`BinaryMask` with split or multiplicative modes
+        - Automatic parameter management through :class:`ModuleReconstructor`
+        - Support for arbitrary bijections with automatic vectorization
+        - Configurable event rank for scalar vs. (e.g.) vector bijections
+        - Proper log-density computation with broadcasting/summation
+
+    Args:
+        embedding_net: Neural network that maps passive components to bijection
+            parameters. Must output parameters compatible with bijection_reconstructor.
+        mask: Binary mask defining active/passive split pattern.
+        bijection_reconstructor: Template for reconstructing parameterized bijections.
+        bijection_event_rank: Event rank of the underlying bijection
+            (0 for scalar, 1 for vector).
+        split: If True, use indexing-based masking;
+            if False, use multiplicative masking.
+
+    Note:
+        When using multiplicative masking (split=False), log-density changes are
+        automatically masked to exclude passive components from density computation.
+        The embedding network output shape must match the total parameter size
+        required by the bijection reconstructor, not just the active part.
+
+    Example:
+        >>> # Create mask and bijection template
+        >>> mask = bijx.checker_mask((4,), parity=True)
+        >>> spline = bijx.MonotoneRQSpline(10, (), rngs=rngs)
+        >>> spline_template = bijx.ModuleReconstructor(spline)
+        >>>
+        >>> # Network producing parameters for active components
+        >>> param_net = bijx.nn.nets.MLP(
+        ...     in_features=mask.count_secondary,
+        ...     out_features=mask.count_primary * spline_template.params_total_size,
+        ...     rngs=rngs
+        ... )
+        >>>
+        >>> # Reshape to coupling layer parameter shape
+        >>> param_reshape = lambda p: p.reshape(*p.shape[:-1], mask.count_primary, -1)
+        >>>
+        >>> # Create coupling layer
+        >>> layer = bijx.GeneralCouplingLayer(
+        ...     nnx.Sequential(param_net, param_reshape),
+        ...     mask, spline_template, bijection_event_rank=0,
+        ... )
+        >>>
+        >>> batch_size = 3
+        >>> x = jnp.ones((batch_size, 4))
+        >>> y, log_det = layer.forward(x, jnp.zeros((batch_size,)))
+    """
 
     def __init__(
         self,

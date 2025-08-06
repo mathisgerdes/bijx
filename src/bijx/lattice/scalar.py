@@ -1,3 +1,13 @@
+"""Scalar field theory utilities for lattice quantum field theory.
+
+This module provides computational tools for scalar field theory on discrete
+lattices with periodic boundary conditions. It implements correlation function
+estimators, action terms, and field observables commonly used in Monte Carlo
+simulations of lattice field theories.
+
+In some most places periodic boundary conditions are assumed.
+"""
+
 from functools import partial, reduce
 
 import chex
@@ -8,18 +18,29 @@ import numpy as np
 
 @jax.jit
 def cyclic_corr(arr1: jnp.ndarray, arr2: jnp.ndarray) -> jnp.ndarray:
-    """Compute ``out[x] = 1/N sum_y arr1[y] arr2[y+x]``.
+    r"""Compute cyclic correlation function with periodic boundary conditions.
 
-    x and y are d-dimensional (lattice) indices. The shapes of arr1
-    and arr2 must match.
-    The sum is executed with periodic boundary conditions.
+    Computes $C(x) = \frac{1}{N} \sum_y f_1(y) f_2(y+x)$ where the sum
+    over $y$ uses periodic boundary conditions and $N$ is the total number
+    of lattice sites.
+
+    This is a building block for computing two-point correlation
+    functions in lattice field theory, exploiting translational invariance
+    to improve statistical estimates.
 
     Args:
-        arr1: d-dimensional array.
-        arr2: d-dimensional array.
+        arr1: First field configuration array of shape $(L_1, \ldots, L_d)$.
+        arr2: Second field configuration array of shape $(L_1, \ldots, L_d)$.
 
     Returns:
-        d-dimensional array.
+        Correlation function array of shape $(L_1, \ldots, L_d)$ where
+        element at position $x$ gives $C(x)$.
+
+    Example:
+        >>> phi = jnp.ones((4, 4))  # Constant field
+        >>> corr = cyclic_corr(phi, phi)
+        >>> jnp.allclose(corr, 1.0)  # Should be constant 1
+        Array(True, dtype=bool)
     """
     chex.assert_equal_shape((arr1, arr2))
     dim = arr1.ndim
@@ -48,18 +69,29 @@ def cyclic_corr(arr1: jnp.ndarray, arr2: jnp.ndarray) -> jnp.ndarray:
 
 @jax.jit
 def cyclic_tensor(arr1: jnp.ndarray, arr2: jnp.ndarray) -> jnp.ndarray:
-    """Compute ``out[x, y] = arr1[y] arr2[y+x]``.
+    r"""Compute full correlation tensor without averaging over positions.
 
-    x and y are d-dimensional (lattice) indices. The shapes of arr1
-    and arr2 must match.
-    The sum is executed with periodic boundary conditions.
+    Computes $T(x,y) = f_1(y) f_2(y+x)$ for all lattice positions $x$ and $y$,
+    using periodic boundary conditions for the shift $y+x$.
+
+    This provides the raw correlation data before averaging over the translation
+    group. The cyclic correlation :func:`cyclic_corr` is obtained by averaging
+    this tensor over the $y$ index.
 
     Args:
-        arr1: d-dimensional array.
-        arr2: d-dimensional array.
+        arr1: First field configuration array of shape $(L_1, \ldots, L_d)$.
+        arr2: Second field configuration array of shape $(L_1, \ldots, L_d)$.
 
     Returns:
-        2*d-dimensional array."""
+        Correlation tensor of shape $(L_1, \ldots, L_d, L_1, \ldots, L_d)$
+        where the first $d$ indices correspond to shift $x$ and the last
+        $d$ indices correspond to position $y$.
+
+    Note:
+        For large lattices, prefer :func:`cyclic_corr` when only
+        the averaged correlation is needed, as that method is less
+        memory intensive.
+    """
     chex.assert_equal_shape((arr1, arr2))
     dim = arr1.ndim
     shape = arr1.shape
@@ -87,29 +119,32 @@ def cyclic_tensor(arr1: jnp.ndarray, arr2: jnp.ndarray) -> jnp.ndarray:
 
 @partial(jax.jit)
 def cyclic_corr_mat(arr: jnp.ndarray) -> jnp.ndarray:
-    """Compute ``out[x] = 1/N sum_y arr[x,x+y]``.
+    r"""Compute cyclic correlation from precomputed correlation tensor.
 
-    x and y are d-dimensional (lattice) indices.
-    `arr` is a 2*d dimensional array.
-    The sum is executed with periodic boundary conditions.
+    Given a correlation tensor $T(x,y)$, computes the cyclic correlation
+    $C(x) = \frac{1}{N} \sum_y T(x, x+y)$ using periodic boundary conditions.
 
-    This function is related to `cyclic_tensor` and `cyclic_corr`:
-        >>> a, b = jnp.ones((2, 12, 12))
-        >>> c1 = cyclic_corr(a, b)
-        >>> c2 = jnp.mean(cyclic_tensor(a, b), 0)
-        >>> jnp.all(c1 == c2).item()
-        True
-        >>> outer_product = jnp.einsum('ij,kl->ijkl', a, b)
-        >>> c3 = cyclic_corr_mat(outer_product)
-        >>> jnp.all(c2 == c3).item()
-        True
+    This is equivalent to :func:`cyclic_corr` but operates on precomputed
+    tensor data rather than field configurations. Useful when the correlation
+    tensor has been computed via other means (e.g., outer products).
 
     Args:
-        arr: 2*d-dimensional array. x is the index of the first d
-            dimensions, y is the index of the last d dimensions.
+        arr: Correlation tensor of shape $(L_1, \ldots, L_d, L_1, \ldots, L_d)$
+            where the first $d$ dimensions index shift $x$ and the last
+            $d$ dimensions index position $y$.
 
     Returns:
-        d-dimensional array.
+        Cyclic correlation array of shape $(L_1, \ldots, L_d)$.
+
+    Example:
+        >>> a, b = jnp.ones((2, 4, 4))
+        >>> # These three approaches are equivalent:
+        >>> c1 = cyclic_corr(a, b)
+        >>> c2 = jnp.mean(cyclic_tensor(a, b), axis=(2, 3))
+        >>> outer = jnp.einsum('ij,kl->ijkl', a, b)
+        >>> c3 = cyclic_corr_mat(outer)
+        >>> jnp.allclose(c1, c2) and jnp.allclose(c2, c3)
+        Array(True, dtype=bool)
     """
     dim = arr.ndim // 2
     shape = arr.shape[:dim]
@@ -141,19 +176,32 @@ def cyclic_corr_mat(arr: jnp.ndarray) -> jnp.ndarray:
 
 @partial(jax.jit, static_argnames=("average",))
 def two_point(phis: jnp.ndarray, average: bool = True) -> jnp.ndarray:
-    """Estimate ``G(x) = <phi(0) phi(x)>``.
+    r"""Estimate two-point correlation function from field samples.
 
-    Translational invariance is assumed, so to improve the estimate we compute
-    ``mean_y <phi(y) phi(x+y)>`` using periodic boundary conditions.
+    Computes the two-point correlation function (propagator):
+    $G(x) = \langle \phi(0) \phi(x) \rangle$
+
+    where $\langle \cdot \rangle$ denotes the expectation value over the
+    field distribution. Exploits translational invariance by computing
+    $\frac{1}{N} \sum_y \langle \phi(y) \phi(x+y) \rangle$ to improve
+    statistical accuracy.
 
     Args:
-        phis: Samples of field configurations of shape
-            ``(batch size, L_1, ..., L_d)``.
-        average: If false, average over samples is not executed.
+        phis: Monte Carlo samples of field configurations with shape
+            $(\text{batch}, L_1, \ldots, L_d)$.
+        average: If True, average over samples. If False, return per-sample
+            correlations for further analysis.
 
     Returns:
-        Array of shape ``(L_1, ..., L_d)`` if ``average`` is true, otherwise
-        of shape ``(batch size, L_1, ..., L_d)``.
+        Two-point correlation function of shape $(L_1, \ldots, L_d)$ if
+        ``average=True``, otherwise shape $(\text{batch}, L_1, \ldots, L_d)$.
+
+    Example:
+        >>> # Generate correlated field samples (simplified example)
+        >>> phis = jnp.ones((100, 8, 8))  # 100 samples of 8x8 lattice
+        >>> G = two_point(phis)
+        >>> G.shape
+        (8, 8)
     """
     corr = jax.vmap(cyclic_corr)(phis, phis)
     return jnp.mean(corr, axis=0) if average else corr
@@ -161,18 +209,30 @@ def two_point(phis: jnp.ndarray, average: bool = True) -> jnp.ndarray:
 
 @jax.jit
 def two_point_central(phis: jnp.ndarray) -> jnp.ndarray:
-    """Estimate ``G_c(x) = <phi(0) phi(x)> - <phi(0)> <phi(x)>``.
+    r"""Estimate connected two-point correlation function.
 
-    Translational invariance is assumed, so to improve the estimate we compute
-    ``mean_y <phi(y) phi(x+y)> - <phi(x)> mean_y <phi(x+y)>`` using periodic
-    boundary conditions.
+    Computes the connected (central) two-point function:
+
+    $$
+    G_c(x) =
+    \langle \phi(0) \phi(x) \rangle
+    - \langle \phi(0) \rangle \langle \phi(x) \rangle
+    $$
 
     Args:
-        phis: Samples of field configurations of shape
-            ``(batch size, L_1, ..., L_d)``.
+        phis: Monte Carlo samples of field configurations with shape
+            $(\text{batch}, L_1, \ldots, L_d)$.
 
     Returns:
-        Array of shape ``(L_1, ..., L_d)``.
+        Connected two-point correlation function of shape $(L_1, \ldots, L_d)$.
+
+    Example:
+        >>> # For a field with non-zero mean, connected differs from full
+        >>> phis = 0.5 + 0.1 * jax.random.normal(key, (100, 8, 8))
+        >>> G_full = two_point(phis)
+        >>> G_conn = two_point_central(phis)
+        >>> jnp.max(jnp.abs(G_full - G_conn)) > 0.1  # Significant difference
+        Array(True, dtype=bool)
     """
     phis_mean = jnp.mean(phis, axis=0)
     outer = phis_mean * jnp.mean(phis_mean)
@@ -181,14 +241,27 @@ def two_point_central(phis: jnp.ndarray) -> jnp.ndarray:
 
 
 @jax.jit
-def correlation_length(two_point: jax.Array):
-    """Estimator for the correlation length.
+def correlation_length(two_point: jax.Array) -> jax.Array:
+    r"""Extract correlation length from two-point function.
+
+    Estimates the correlation length $\xi$ by fitting the asymptotic
+    exponential decay of the correlation function. Uses the effective
+    mass estimator:
+    $m_{\text{eff}}(t) = \text{arccosh}\left(\frac{G(t-1) + G(t+1)}{2G(t)}\right)$
+
+    The correlation length is $\xi = 1/m_{\text{eff}}$ averaged over
+    suitable time slices.
+
+    This method assumes the correlator has the asymptotic form
+    $G(x) \sim e^{-|x|/\xi}$ for large separations.
 
     Args:
-        G: Centered two-point function.
+        two_point: Connected two-point correlation function, typically
+            from :func:`two_point_central`. Should have shape compatible
+            with marginalizing over spatial directions.
 
     Returns:
-        Scalar. Estimate of correlation length.
+        Scalar estimate of the correlation length $\xi$.
     """
     marginal = jnp.mean(two_point, axis=0)
     arg = (jnp.roll(marginal, 1) + jnp.roll(marginal, -1)) / (2 * marginal)
@@ -198,12 +271,58 @@ def correlation_length(two_point: jax.Array):
 
 @jax.jit
 def kinetic_term(phi: jax.Array) -> jax.Array:
+    r"""Compute kinetic energy density for scalar field theory.
+
+    Computes the discrete kinetic energy term:
+    $T(x) = \sum_{\mu=1}^d [\phi(x+\hat{\mu}) - \phi(x)]^2$
+
+    where $\hat{\mu}$ are the unit vectors in each lattice direction.
+    This approximates the continuum kinetic term $(\nabla \phi)^2$ using
+    finite differences with periodic boundary conditions.
+
+    Args:
+        phi: Scalar field configuration of shape $(L_1, \ldots, L_d)$.
+
+    Returns:
+        Kinetic energy density at each lattice site, same shape as input.
+
+    Example:
+        >>> # Constant field has zero kinetic energy
+        >>> phi = jnp.ones((4, 4))
+        >>> T = kinetic_term(phi)
+        >>> jnp.allclose(T, 0.0)
+        Array(True, dtype=bool)
+    """
     a = reduce(jnp.add, [(jnp.roll(phi, 1, y) - phi) ** 2 for y in range(phi.ndim)])
     return a
 
 
 @partial(jax.jit, static_argnums=(2,))
 def poly_term(phi: jax.Array, coeffs: jax.Array, even: bool = False) -> jax.Array:
+    r"""Compute polynomial potential energy density.
+
+    Evaluates a polynomial potential $V(\phi) = \sum_{n=0}^N c_n \phi^n$
+    at each lattice site. Supports both general polynomials and even
+    polynomials in $\phi^2$.
+
+    Args:
+        phi: Scalar field configuration of shape $(L_1, \ldots, L_d)$.
+        coeffs: Polynomial coefficients $[c_N, c_{N-1}, \ldots, c_1, c_0]$
+            in descending order of powers (NumPy convention).
+        even: If True, evaluate polynomial in $\phi^2$ instead of $\phi$,
+            giving $V(\phi) = \sum_{n=0}^N c_n (\phi^2)^n$.
+
+    Returns:
+        Potential energy density at each lattice site, same shape as input.
+
+    Example:
+        >>> phi = jnp.array([[1.0, 2.0], [3.0, 4.0]])
+        >>> # Quadratic potential: V(phi) = phi^2
+        >>> coeffs = jnp.array([1.0, 0.0])  # [c_1, c_0] = [1, 0]
+        >>> V = poly_term(phi, coeffs)
+        >>> jnp.allclose(V, phi**2)
+        Array(True, dtype=bool)
+    """
     coeffs = jnp.concatenate([coeffs, np.array([0.0])])
     if even:
         phi = phi**2
@@ -216,10 +335,33 @@ def phi4_term(
     m2: float,
     lam: float | None = None,
 ) -> jax.Array:
-    """
-    phi4_term = kinetic_term(phi) + m2 * phi ** 2
+    r"""Compute action density for $\phi^4$ scalar field theory.
 
-    Note: does not include factor 1/2 to get S ~ m^2/2 (if desired).
+    Implements the standard $\phi^4$ action density:
+    $\mathcal{L}(x) = (\nabla \phi)^2 + m^2 \phi^2 + \lambda \phi^4$
+
+    This combines the kinetic energy, mass term, and quartic self-interaction.
+    The resulting action is $S = \sum_x \mathcal{L}(x)$.
+
+    Args:
+        phi: Scalar field configuration of shape $(L_1, \ldots, L_d)$.
+        m2: Bare mass squared parameter $m^2$.
+        lam: Quartic coupling constant $\lambda$. If None, omits the
+            $\phi^4$ interaction term.
+
+    Returns:
+        Action density at each lattice site, same shape as input.
+
+    Note:
+        Does not include common overall normalization factor like $1/2$.
+
+    Example:
+        >>> phi = jnp.ones((4, 4))  # Constant field
+        >>> action_density = phi4_term(phi, m2=1.0, lam=0.1)
+        >>> # For constant field: kinetic=0, mass=m2, interaction=lam
+        >>> expected = 1.0 + 0.1  # m2 * 1^2 + lam * 1^4
+        >>> jnp.allclose(action_density, expected)
+        Array(True, dtype=bool)
     """
     phi2 = phi**2
     a = kinetic_term(phi) + m2 * phi2
@@ -234,11 +376,27 @@ def phi4_term_alt(
     kappa: float,
     lam: float | None = None,
 ) -> jax.Array:
+    r"""Alternative parameterization of $\phi^4$ action using hopping parameter.
+
+    $$
+    \mathcal{L}(x) =
+    -2\kappa \phi(x) \sum_{\mu} \phi(x+\hat{\mu})
+    + (1-2\lambda) \phi(x)^2 + \lambda \phi(x)^4
+    $$
+
+    Args:
+        phi: Scalar field configuration of shape $(L_1, \ldots, L_d)$.
+        kappa: Hopping parameter controlling kinetic term strength.
+        lam: Self-interaction parameter. If None, uses $\lambda = 0$.
+
+    Returns:
+        Action density at each lattice site, same shape as input.
+    """
     kinetic = (
         (-2 * kappa)
         * phi
         * reduce(jnp.add, [jnp.roll(phi, 1, y) for y in range(phi.ndim)])
     )
-    mass = (1 - 2 * lam) * phi**2
-    inter = lam * phi**4
-    return kinetic + mass + inter
+    if lam is None:
+        return kinetic + phi**2
+    return kinetic + (1 - 2 * lam) * phi**2 + lam * phi**4

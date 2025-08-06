@@ -1,3 +1,10 @@
+r"""
+Fourier transform utilities for lattice field theory and physics applications.
+
+This module provides comprehensive utilities for working with Fourier transforms
+of real-valued fields based on the FFT implementation in JAX.
+"""
+
 from enum import IntEnum
 from itertools import product
 
@@ -15,6 +22,30 @@ def fft_momenta(
     lattice: bool = False,
     unit: bool = False,
 ) -> jax.Array:
+    """Generate momentum grid for Fourier transforms.
+
+    Creates momentum coordinate arrays suitable for physics applications,
+    supporting both continuum and lattice formulations. Handles the reduced
+    form appropriate for real FFTs with Hermitian symmetry.
+
+    Args:
+        shape: Spatial grid dimensions.
+        reduced: If True, use reduced form for real FFT (Hermitian symmetry).
+        lattice: If True, use lattice momenta; otherwise continuum momenta.
+        unit: If True, return integer indices instead of momentum values.
+
+    Returns:
+        Momentum grid array with shape (*spatial_shape, spatial_rank).
+        For continuum: momenta in units of 2π/L.
+        For lattice: momenta appropriate for lattice derivatives.
+
+    Example:
+        >>> # Continuum momenta for 2D lattice
+        >>> k = fft_momenta((64, 64), lattice=False)
+        >>> k_squared = jnp.sum(k**2, axis=-1)  # |k|²
+        >>> # Lattice momenta for finite difference operators
+        >>> k_lat = fft_momenta((64, 64), lattice=True)
+    """
     shape_factor = np.reshape(shape, [-1] + [1] * len(shape))
     if reduced:
         # using reality condition, can eliminate about half of components
@@ -36,6 +67,31 @@ def fft_momenta(
 
 @flax.struct.dataclass
 class FourierMeta:
+    """Metadata for handling real FFT constraints and symmetries.
+
+    Encapsulates all the bookkeeping needed to work with real-valued Fourier
+    transforms, including Hermitian symmetry constraints, multiplicities for
+    log-Jacobian computation, and indexing for different representations.
+
+    The metadata handles the reduction from full complex FFT to the independent
+    real degrees of freedom.
+
+    Args:
+        shape_info: Shape information for spatial and channel dimensions.
+        mr: Boolean mask for real (independent) Fourier modes.
+        mi: Boolean mask for imaginary (independent) Fourier modes.
+        copy_from: Indices of modes that are copied due to Hermitian symmetry.
+        copy_to: Target indices for Hermitian symmetry copying.
+        ks_full: Full momentum magnitude squared values.
+        ks_reduced: Reduced momentum magnitude squared values.
+        unique_idc: Indices of unique momentum magnitudes.
+        unique_unfold: Mapping from reduced to unique momentum magnitudes.
+
+    Note:
+        This class is created automatically by :func:`FourierMeta.create()` and
+        should usually not be instantiated directly.
+    """
+
     shape_info: ShapeInfo
     mr: np.ndarray = flax.struct.field(pytree_node=False)
     mi: np.ndarray = flax.struct.field(pytree_node=False)
@@ -81,6 +137,15 @@ class FourierMeta:
 
     @classmethod
     def create(cls, real_shape, channel_dim=0):
+        """Create FourierMeta for given real-space shape.
+
+        Args:
+            real_shape: Shape of real-space data.
+            channel_dim: Number of channel dimensions.
+
+        Returns:
+            FourierMeta instance with all symmetry constraints computed.
+        """
         mr, mi, copy_from, copy_to = cls._get_fourier_info(real_shape)
         ks_full = np.sum(fft_momenta(real_shape, unit=True) ** 2, axis=-1).astype(int)
         ks_reduced = ks_full[mr]
@@ -137,6 +202,24 @@ class FourierMeta:
 
 
 class FFTRep(IntEnum):
+    """Enumeration of different Fourier data representations.
+
+    Defines the various ways to represent Fourier data for real-valued fields,
+    each with different trade-offs in terms of memory usage, computational
+    efficiency, and mathematical convenience.
+
+    Values:
+        real_space: Original real-space field data.
+        rfft: Raw output from real FFT (includes redundant information).
+        comp_complex: Independent complex Fourier components only.
+        comp_real: All independent real degrees of freedom as a single array.
+
+    Note:
+        The comp_real representation packs both real and imaginary parts
+        of independent modes into a single real-valued array, maximizing
+        compatibility with standard bijection layers.
+    """
+
     real_space = 0  # 'real space data'
     rfft = 1  # 'raw rfft output'
     comp_complex = 2  # 'independent complex components'
@@ -145,6 +228,30 @@ class FFTRep(IntEnum):
 
 @flax.struct.dataclass
 class FourierData:
+    """Multi-representation container for Fourier data.
+
+    Provides a unified interface for working with Fourier data in different
+    representations, with automatic conversion between formats. This enables
+    seamless switching between representations based on computational needs.
+
+    The container maintains the data, its current representation type, and
+    the associated metadata needed for conversions. All conversions preserve
+    the underlying mathematical content while changing the format.
+
+    Args:
+        data: The actual data array in the current representation.
+        rep: Current representation type (FFTRep enum).
+        meta: FourierMeta containing symmetry and indexing information.
+
+    Example:
+        >>> # Create from real-space data
+        >>> fd = FourierData.from_real(x, (64, 64))
+        >>> # Convert to complex components
+        >>> fd_complex = fd.to(FFTRep.comp_complex)
+        >>> # Convert to real degrees of freedom
+        >>> fd_real = fd.to(FFTRep.comp_real)
+    """
+
     data: jax.Array
     rep: FFTRep = flax.struct.field(pytree_node=False)
     meta: FourierMeta

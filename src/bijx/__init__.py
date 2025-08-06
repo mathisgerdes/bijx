@@ -1,3 +1,24 @@
+r"""Bijx: Bijections and normalizing flows with JAX, with focus on physics.
+
+Bijx is a library for normalizing flows built on JAX and Flax NNX,
+with some specialized tools for lattice field theory. The library
+provides flexible bijection primitives, distribution interfaces, and specialized
+neural network components for building probabilistic models.
+
+Example:
+    >>> # Create a simple normalizing flow
+    >>> base_dist = bijx.IndependentNormal(event_shape=(10,), rngs=rngs)
+    >>> bijection = bijx.Chain(
+    ...     bijx.AffineLinear(rngs=rngs),
+    ...     bijx.Tanh(),
+    ...     bijx.AffineLinear(rngs=rngs)
+    ... )
+    >>>
+    >>> # Sample and evaluate densities
+    >>> x, log_p = base_dist.sample(batch_shape=(100,))
+    >>> y, log_q = bijection.forward(x, log_p)
+"""
+
 from . import (
     bijections,
     cg,
@@ -28,6 +49,7 @@ from .bijections import (
     Frozen,
     GeneralCouplingLayer,
     Inverse,
+    CondInverse,
     MetaLayer,
     MonotoneRQSpline,
     ModuleReconstructor,
@@ -73,7 +95,6 @@ from .nn.embeddings import (
 )
 from .nn.features import (
     ConcatFeatures,
-    DivFeatures,
     FourierFeatures,
     NonlinearFeatures,
     PolynomialFeatures,
@@ -117,6 +138,7 @@ __all__ = [
     "ExpandDims",
     "Frozen",
     "Inverse",
+    "CondInverse",
     "MetaLayer",
     "Reshape",
     "ToFourierData",
@@ -182,7 +204,6 @@ __all__ = [
     "BufferedSampler",
     # Features
     "ConcatFeatures",
-    "DivFeatures",
     "FourierFeatures",
     "NonlinearFeatures",
     "PolynomialFeatures",

@@ -1,5 +1,7 @@
-"""
-Simple neural networks for convenience and prototyping.
+r"""
+Complete neural network architectures for convenience and prototyping.
+
+This module provides some common and ready-to-use neural network architectures.
 """
 
 import typing as tp
@@ -8,6 +10,29 @@ from flax import nnx
 
 
 class ConvNet(nnx.Module):
+    """Feedforward convolutional neural network.
+
+    Implements a standard convolutional architecture with multiple layers.
+    Uses periodic padding by default to respect boundary conditions.
+
+    Args:
+        in_channels: Number of input feature channels.
+        out_channels: Number of output feature channels.
+        kernel_size: Spatial size of convolution kernels.
+        hidden_channels: Number of channels in each hidden layer.
+        activation: Activation function for hidden layers.
+        final_activation: Activation function for output layer.
+        padding: Padding mode ('CIRCULAR' for periodic boundaries).
+        rngs: Random number generator state.
+
+    Example:
+        >>> net = ConvNet(
+        ...     in_channels=1, out_channels=2,
+        ...     hidden_channels=[16, 32, 16],
+        ...     padding="CIRCULAR", rngs=rngs
+        ... )
+        >>> output = net(lattice_data)
+    """
 
     def __init__(
         self,
@@ -40,6 +65,14 @@ class ConvNet(nnx.Module):
         ]
 
     def __call__(self, x):
+        """Apply convolutional network to input data.
+
+        Args:
+            x: Input tensor with shape (..., height, width, channels).
+
+        Returns:
+            Network output.
+        """
         for conv in self.conv_layers[:-1]:
             x = conv(x)
             x = self.activation(x)
@@ -49,6 +82,33 @@ class ConvNet(nnx.Module):
 
 
 class ResNet(nnx.Module):
+    """Residual neural network with skip connections.
+
+    Args:
+        in_features: Input feature dimensionality.
+        out_features: Output feature dimensionality.
+        width: Hidden layer width (number of neurons).
+        depth: Number of residual blocks.
+        activation: Activation function for hidden layers.
+        final_activation: Activation function for output layer.
+        dropout: Dropout rate for regularization.
+        final_bias_init: Initialization for final layer bias.
+        final_kernel_init: Initialization for final layer weights.
+        rngs: Random number generator state.
+
+    Note:
+        The residual connections are applied to the intermediate representations
+        of fixed width. The final layer maps to the desired output dimensionality.
+        Dropout is applied before each residual block for regularization.
+
+    Example:
+        >>> net = ResNet(
+        ...     in_features=64, out_features=32,
+        ...     width=512, depth=10, rngs=rngs
+        ... )
+        >>> output = net(features)
+    """
+
     def __init__(
         self,
         in_features: int,
@@ -89,6 +149,14 @@ class ResNet(nnx.Module):
         self.dropout = nnx.Dropout(rate=dropout)
 
     def __call__(self, x):
+        """Apply residual network to input features.
+
+        Args:
+            x: Input tensor with shape (..., in_features).
+
+        Returns:
+            Output tensor with shape (..., out_features).
+        """
         x = self.first_layer(x)
         for layer in self.hidden_layers:
             delta = self.dropout(x)
@@ -101,6 +169,29 @@ class ResNet(nnx.Module):
 
 
 class MLP(nnx.Module):
+    """Multi-layer perceptron for general function approximation.
+
+    Implements a standard feedforward neural network with customizable
+    architecture and activation functions.
+
+    Args:
+        in_features: Input feature dimensionality.
+        out_features: Output feature dimensionality.
+        hidden_features: List of hidden layer widths.
+        activation: Activation function for hidden layers.
+        final_activation: Activation function for output layer.
+        rngs: Random number generator state.
+
+    Example:
+        >>> # MLP for coupling layer transformation
+        >>> net = MLP(
+        ...     in_features=32, out_features=64,
+        ...     hidden_features=[128, 256, 128],
+        ...     activation=nnx.gelu, rngs=rngs
+        ... )
+        >>> output = net(input_features)
+    """
+
     def __init__(
         self,
         in_features: int,
@@ -135,8 +226,17 @@ class MLP(nnx.Module):
         )
 
     def __call__(self, x):
-        for layer in self.layers:
+        """Apply multi-layer perceptron to input features.
+
+        Args:
+            x: Input tensor with shape (..., in_features).
+
+        Returns:
+            Output tensor with shape (..., out_features).
+        """
+        for layer in self.layers[:-1]:
             x = layer(x)
             x = self.activation(x)
+        x = self.layers[-1](x)
         x = self.final_activation(x)
         return x

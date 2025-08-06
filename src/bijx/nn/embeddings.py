@@ -1,3 +1,12 @@
+r"""
+Embedding layers for time and positional encoding in neural networks.
+
+This module provides various embedding functions that map scalar inputs
+to high-dimensional feature vectors. These are particularly useful for
+continuous normalizing flows where time-dependent parameters need rich
+feature representations, and for positional encodings in attention mechanisms.
+"""
+
 import typing as tp
 
 import jax.numpy as jnp
@@ -8,6 +17,20 @@ from ..utils import Const
 
 
 def rescale_range(val, val_range: tuple[float, float] | None):
+    """Rescale input values to unit interval [0, 1].
+
+    Args:
+        val: Input values to rescale.
+        val_range: Tuple of (min, max) values defining the input range.
+            If None, returns input unchanged.
+
+    Returns:
+        Rescaled values mapped to [0, 1] interval.
+
+    Note:
+        Values outside the specified range will be mapped outside [0, 1].
+        Consider clamping if strict bounds are required.
+    """
     if val_range is None:
         return val
     val_min, val_max = val_range
@@ -16,6 +39,22 @@ def rescale_range(val, val_range: tuple[float, float] | None):
 
 
 class Embedding(nnx.Module):
+    """Base class for scalar-to-vector embedding functions.
+
+    Provides the foundation for all embedding layers that map scalar inputs
+    to fixed-size feature vectors. Subclasses implement specific embedding
+    strategies like Gaussian kernels, Fourier features, or positional encodings.
+
+    Args:
+        feature_count: Dimensionality of the output feature vector.
+        rngs: Random number generator state for parameter initialization.
+
+    Note:
+        This is an abstract base class. Use concrete subclasses like
+        :class:`KernelGauss`, :class:`KernelFourier`, or :class:`PositionalEmbedding`.
+        Its main function is to ensure the ``feature_count`` parameter is set.
+    """
+
     def __init__(
         self,
         feature_count: int,
@@ -26,6 +65,31 @@ class Embedding(nnx.Module):
 
 
 class KernelGauss(Embedding):
+    r"""Gaussian radial basis function embedding with learnable widths.
+
+    Maps scalar inputs to feature vectors using Gaussian basis functions
+    centered at evenly spaced positions.
+
+    The centers $\mu_i$ are evenly spaced across the input range, and the
+    width parameter $\sigma$ can be learned during training for optimal
+    feature representation. The width parameter is passed through softplus
+    to ensure positivity.
+
+    Args:
+        feature_count: Number of Gaussian basis functions.
+        val_range: Input value range for rescaling to [0, 1].
+        width_factor: Initial width parameter (smaller = wider Gaussians).
+        adaptive_width: Whether to make width parameters trainable.
+        norm: Whether to normalize outputs to sum to 1 (probability-like).
+        one_width: If adaptive, whether to use single width vs per-Gaussian widths.
+        rngs: Random number generator state.
+
+    Example:
+        >>> # Smooth time embedding for CNFs
+        >>> embed = KernelGauss(feature_count=21, adaptive_width=True, rngs=rngs)
+        >>> features = embed(0.1)  # Shape: (21,)
+    """
+
     def __init__(
         self,
         feature_count: int,
@@ -37,41 +101,27 @@ class KernelGauss(Embedding):
         one_width: bool = True,
         rngs: nnx.Rngs | None = None,
     ):
-        """
-        Smooth interpolation based on Gaussians.
-
-        Given a value x, the output of the kernel function is an array
-        roughly like ``[exp(-(x-s1)^2), exp(-(x-s2)^2), ...]``.
-        This can be understood as a smooth approximation to linear
-        interpolation based on Gaussians located and positions s1, s2, etc.
-        These positions are evenly spaced and fixed, here.
-
-        Args:
-            feature_count: Number of positions/Gaussians in kernel.
-            val_range: Range of input values to rescale to [0, 1].
-            width_factor: Initial width factor of the Gaussians.
-                The smaller the factor, the wider the Gaussians.
-            adaptive_width: Whether to make the width trainable.
-            norm: Whether to keep the sum of the kernel values fixed to 1
-                for each input value.
-            one_width: Whether the widths, if trainable, can be different
-                for each kernel position.
-            name: Name of module.
-        """
         super().__init__(feature_count, rngs=rngs)
         self.val_range = val_range
-        self.width_factor = width_factor
         self.adaptive_width = adaptive_width
         self.norm = norm
         self.one_width = one_width
 
         width_shape = () if self.one_width else (self.feature_count,)
         if self.adaptive_width:
-            self.width_factor = nnx.Param(jnp.full(width_shape, self.width_factor))
+            self.width_factor = nnx.Param(jnp.full(width_shape, width_factor))
         else:
             self.width_factor = Const(width_factor)
 
     def __call__(self, val):
+        """Apply Gaussian basis function embedding to input values.
+
+        Args:
+            val: Input scalar values of any shape.
+
+        Returns:
+            Gaussian feature activations with shape (*val.shape, feature_count).
+        """
         factor = nnx.softplus(self.width_factor)
         inverse_width = factor * (self.feature_count - 1)
         # could also make this adaptive
@@ -83,6 +133,23 @@ class KernelGauss(Embedding):
 
 
 class KernelLin(Embedding):
+    """Piecewise linear interpolation embedding with sparse outputs.
+
+    Maps scalar inputs to sparse feature vectors using linear interpolation
+    between adjacent basis positions. At most two adjacent features are
+    non-zero for any input.
+
+    Args:
+        feature_count: Number of interpolation basis positions.
+        val_range: Input value range for rescaling to [0, 1].
+        rngs: Random number generator state.
+
+    Example:
+        >>> # Efficient sparse embedding
+        >>> embed = KernelLin(feature_count=11, rngs=rngs)
+        >>> features = embed(t)  # Only 2 non-zero values
+    """
+
     def __init__(
         self,
         feature_count: int,
@@ -90,25 +157,18 @@ class KernelLin(Embedding):
         val_range: tuple[float, float] | None = None,
         rngs: nnx.Rngs | None = None,
     ):
-        """Linear interpolation kernel.
-
-        The output of the model is an array like ``[a1, a2, ...]``
-        where either one or two neighboring entries are non-zero.
-        The position of the non-zero entry is given by the input value
-        with linear interpolation (and thus two entries non-zero)
-        if the input value falls between two array indices.
-        The value the first and last indices correspond to are either
-        0 and 1 or given by the ``val_range`` argument.
-
-        Args:
-            feature_count: Number of elements in linear interpolation.
-            val_range: Range of input values.
-            rngs: Random number generators.
-        """
         super().__init__(feature_count, rngs=rngs)
         self.val_range = val_range
 
     def __call__(self, val):
+        """Apply linear interpolation embedding to input values.
+
+        Args:
+            val: Input scalar values of any shape.
+
+        Returns:
+            Sparse linear interpolation features with shape (*val.shape, feature_count).
+        """
         width = 1 / (self.feature_count - 1)
         pos = np.linspace(0, 1, self.feature_count)
         val = rescale_range(val, self.val_range)
@@ -117,6 +177,28 @@ class KernelLin(Embedding):
 
 
 class KernelFourier(Embedding):
+    r"""Fourier series embedding for smooth representations.
+
+    Maps scalar inputs to feature vectors using truncated Fourier series
+    with sine and cosine components.
+    The embedding captures multiple frequency scales, allowing the network
+    to represent both fine-grained and coarse temporal patterns effectively.
+
+    Args:
+        feature_count: Number of Fourier terms in the expansion.
+            For even counts, uses (feature_count-1)//2 frequency pairs plus constant.
+        val_range: Input value range for normalization.
+        rngs: Random number generator state.
+
+    Note:
+        The constant term (1.0) is always included.
+        Frequencies increase linearly: 1, 2, 3, ... in units of 2π/period.
+
+    Example:
+        >>> embed = KernelFourier(feature_count=21, rngs=rngs)
+        >>> time_features = embed(t)  # Captures multiple time scales
+    """
+
     def __init__(
         self,
         feature_count: int,
@@ -124,24 +206,18 @@ class KernelFourier(Embedding):
         val_range: tuple[float, float] | None = None,
         rngs: nnx.Rngs | None = None,
     ):
-        """Truncated fourier expansion on given interval.
-
-        Given an input x to the model, the output is an array like
-        ``[1, sin(2 pi x), cos(2 pi x), sin(4 pi x), ...]``
-        (except in a different order).
-
-        Args:
-            feature_count: The number of Fourier-terms.
-                (This is true if the number is odd. Otherwise, in effect,
-                the next smallest odd number is used).
-            val_range: The range of input values such that the largest input
-                is normalized to 1.
-            rngs: Random number generators.
-        """
         super().__init__(feature_count, rngs=rngs)
         self.val_range = val_range
 
     def __call__(self, val):
+        """Apply Fourier series embedding to input values.
+
+        Args:
+            val: Input scalar values of any shape.
+
+        Returns:
+            Fourier feature vector with shape (*val.shape, feature_count).
+        """
         freq = jnp.arange(1, (self.feature_count - 1) // 2 + 1)
         val = rescale_range(val, self.val_range)
         sin = jnp.sin(2 * jnp.pi * freq * val)
@@ -150,6 +226,30 @@ class KernelFourier(Embedding):
 
 
 class KernelReduced(Embedding):
+    """Dimensionality reduction wrapper for high-dimensional embeddings.
+
+    Applies learned linear dimensionality reduction to another embedding layer.
+    Note that it simply implements a linear map, not strictly a "reduction"
+    and the output features could be chosen larger than the input features.
+
+    Args:
+        kernel: Base embedding layer to reduce.
+        feature_count: Target dimensionality (must be < kernel.feature_count).
+        init: Initialization function for projection matrix (default: orthogonal).
+        rngs: Random number generator state.
+
+    Note:
+        The projection matrix is normalized by the base kernel's feature count
+        to maintain reasonable magnitudes. Orthogonal initialization helps
+        preserve independent features.
+
+    Example:
+        >>> # Reduce 49-dimensional Fourier embedding to 20 dimensions
+        >>> base_embed = KernelFourier(49, rngs=rngs)
+        >>> reduced = KernelReduced(base_embed, 20, rngs=rngs)
+        >>> features = reduced(t)
+    """
+
     def __init__(
         self,
         kernel: nnx.Module,
@@ -166,24 +266,34 @@ class KernelReduced(Embedding):
         )
 
     def __call__(self, val):
+        """Apply dimensionality reduction to base kernel embedding.
+
+        Args:
+            val: Input scalar values.
+
+        Returns:
+            Reduced-dimension embedding features.
+        """
         embed = self.kernel(val)
         sup = self.superposition.value / self.kernel.feature_count
         return jnp.einsum("ij,...j->...i", sup, embed)
 
 
 class PositionalEmbedding(Embedding):
-    """Sinusoidal positional embeddings.
+    r"""Sinusoidal positional embeddings from transformer architectures.
 
-    This embedding is based on the sinusoidal embeddings from Fairseq.
-    It maps a scalar value to a vector of sinusoidal embeddings.
+    Uses multiple frequencies to create position-dependent representations.
 
     Args:
-        feature_count: The number of features in the embedding.
-        max_positions: Normalization factor controlling frequency scaling.
-            Larger values create lower frequency components with longer wavelengths.
-            Roughly, set to possible range of input values.
-        append_input: Whether to append the input value to the embedding.
-        rngs: Random number generators.
+        feature_count: Output feature dimensionality (must be even).
+        max_positions: Maximum expected input value for frequency scaling.
+            Controls the base wavelength; larger values create lower frequencies.
+        append_input: Whether to concatenate the raw input to the embedding.
+        rngs: Random number generator state.
+
+    Example:
+        >>> embed = PositionalEmbedding(feature_count=64, max_positions=1000, rngs=rngs)
+        >>> pos_features = embed(position_indices)
     """
 
     def __init__(
@@ -200,6 +310,14 @@ class PositionalEmbedding(Embedding):
         self.append_input = append_input
 
     def __call__(self, val):
+        """Apply sinusoidal positional embedding to input values.
+
+        Args:
+            val: Scalar input values of any shape.
+
+        Returns:
+            Positional embeddings with shape (*val.shape, feature_count + append_input).
+        """
         val_shape = jnp.shape(val)
         val = jnp.reshape(val, -1)
 

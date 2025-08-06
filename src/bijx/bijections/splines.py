@@ -1,5 +1,11 @@
 """
-Spline-based bijections.
+Spline-based bijective transformations for normalizing flows.
+
+This module provides rational quadratic spline transformations that offer
+flexible, smooth bijections with trainable parameters.
+
+Reference:
+    Durkan et al. "Neural Spline Flows" (arXiv:1906.04032)
 """
 
 import jax.numpy as jnp
@@ -23,10 +29,47 @@ def rational_quadratic_spline(
     min_bin_height=1e-3,
     min_slope=1e-3,
 ):
-    """Apply monotonic rational quadratic spline transformation.
+    r"""Apply monotonic rational quadratic spline transformation.
 
-    Following arXiv:1906.04032.
-    Assumes inputs.shape = (..., n), parameters are (..., n, num_bins).
+    Implements the rational quadratic spline bijection from Durkan et al.
+    (arXiv:1906.04032). The transformation constructs a smooth, monotonic
+    function using piecewise rational quadratic segments between knot points.
+
+    Type: [0, 1] → [0, 1] (with identity extension outside domain)
+
+    where $x' = (x - x_k)/w_k$ is the normalized position within bin $k$,
+    and $s_k = h_k/w_k$ is the bin slope.
+
+    Key features:
+        - Monotonic by construction through parameter normalization
+        - Identity transformation outside [0,1] domain
+        - Numerically stable with minimum parameter constraints
+        - Efficient inverse computation via quadratic formula
+
+    Args:
+        inputs: Input values to transform.
+        bin_widths: Unnormalized bin widths (softmax applied internally).
+        bin_heights: Unnormalized bin heights (softmax applied internally).
+        knot_slopes: Internal knot slopes (softplus applied for positivity).
+        inverse: Whether to apply inverse transformation.
+        min_bin_width: Minimum bin width for numerical stability.
+        min_bin_height: Minimum bin height for numerical stability.
+        min_slope: Minimum knot slope for numerical stability.
+
+    Returns:
+        Tuple of (transformed_inputs, log_determinant) where log_determinant
+        gives the log absolute Jacobian determinant of the transformation.
+
+    Note:
+        Boundary knot slopes are fixed to 1.0 to ensure smooth linear tails
+        outside the spline domain. Only internal knot slopes are trainable.
+
+    Example:
+        >>> x = jnp.array([0.2, 0.5, 0.8])
+        >>> widths = jnp.ones((3, 4))  # 4 bins
+        >>> heights = jnp.ones((3, 4))
+        >>> slopes = jnp.ones((3, 3))  # 3 internal knots
+        >>> y, log_det = rational_quadratic_spline(x, widths, heights, slopes)
     """
     num_bins = bin_widths.shape[-1]
 
@@ -143,6 +186,37 @@ def rational_quadratic_spline(
 
 
 class MonotoneRQSpline(ApplyBijection):
+    r"""Monotonic rational quadratic spline bijection.
+
+    Implements element-wise rational quadratic spline transformations that
+    maintain monotonicity through parameter normalization. Each element
+    is transformed independently using the same spline but different parameters.
+
+    Type: [0, 1]^n → [0, 1]^n (with linear extension outside)
+
+    The spline divides the [0,1] interval into bins and constructs smooth
+    rational quadratic curves between knot points. Parameters are automatically
+    normalized to ensure monotonicity and numerical stability.
+
+    Args:
+        knots: Number of knot points (creates knots-1 bins).
+        event_shape: Shape of individual events being transformed.
+        min_bin_width: Minimum bin width for numerical stability.
+        min_bin_height: Minimum bin height for numerical stability.
+        min_slope: Minimum internal knot slope for numerical stability.
+        widths_init: Initializer for bin width parameters.
+        heights_init: Initializer for bin height parameters.
+        slopes_init: Initializer for internal slope parameters.
+        rngs: Random number generators for parameter initialization.
+
+    Example:
+        >>> spline = MonotoneRQSpline(
+        ...     knots=8, event_shape=(3,), rngs=rngs
+        ... )
+        >>> x = jnp.array([[0.2, 0.5, 0.8]])
+        >>> y, log_det = spline.forward(x, jnp.zeros(1))
+    """
+
     def __init__(
         self,
         knots,
@@ -156,10 +230,10 @@ class MonotoneRQSpline(ApplyBijection):
         slopes_init=nnx.initializers.normal(),
         rngs: nnx.Rngs,
     ):
-        """
-        Monotone rational quadratic spline.
+        """Initialize monotonic rational quadratic spline.
 
-        Assume input is 1-dimensional.
+        Creates trainable parameters for bin widths, heights, and internal
+        knot slopes. Boundary slopes are fixed to 1.0 for linear tails.
         """
         self.event_shape = event_shape
         self.in_features = np.prod(event_shape, dtype=int)
@@ -179,16 +253,34 @@ class MonotoneRQSpline(ApplyBijection):
 
     @property
     def param_count(self):
-        """Total number of parameters needed: widths + heights + slopes."""
+        """Total number of parameters: widths + heights + internal slopes."""
         return 3 * self.knots - 1
 
     @property
     def param_splits(self):
-        """How to split the parameter vector into widths, heights, and slopes."""
+        """Parameter split sizes for widths, heights, and internal slopes.
+
+        Returns:
+            List of sizes [knots, knots, knots-1] for splitting a flattened
+            parameter vector into width, height, and slope components.
+        """
         return [self.knots, self.knots, self.knots - 1]
 
     def apply(self, x, log_density, reverse, **kwargs):
+        """Apply rational quadratic spline transformation.
 
+        Transforms input through the spline bijection and updates log density
+        with the log absolute Jacobian determinant.
+
+        Args:
+            x: Input array to transform.
+            log_density: Current log density values.
+            reverse: Whether to apply inverse transformation.
+            **kwargs: Additional arguments (unused).
+
+        Returns:
+            Tuple of (transformed_x, updated_log_density).
+        """
         event_dim = jnp.ndim(x) - jnp.ndim(log_density)
         si = ShapeInfo(event_dim=event_dim, channel_dim=0)
         _, si = si.process_event(jnp.shape(x))

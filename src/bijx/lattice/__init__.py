@@ -1,10 +1,12 @@
 from . import scalar, gauge
 
 # only export things where application domain (e.g. gauge vs scalar) is clear
+# or is universally applicable.
 from .gauge import (
     apply_gauge_sym,
     wilson_log_prob,
     wilson_action,
+    roll_lattice,
 )
 
 
@@ -16,4 +18,5 @@ __all__ = [
     "apply_gauge_sym",
     "wilson_log_prob",
     "wilson_action",
+    "roll_lattice",
 ]

@@ -1,18 +1,11 @@
-# Adapted from https://github.com/google/jax/blob/main/jax/experimental/ode.py
-#
-# Copyright 2018 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+r"""
+ODE solvers for continuous normalizing flows.
+
+This module provides ODE integration utilities specifically designed for
+continuous normalizing flows, including custom RK4 implementations and
+diffrax configuration helpers. The solvers support both forward and
+reverse integration with automatic differentiation.
+"""
 
 from functools import partial
 
@@ -28,6 +21,38 @@ from jax.flatten_util import ravel_pytree
 
 @flax.struct.dataclass
 class DiffraxConfig:
+    """Configuration for diffrax ODE solving in continuous normalizing flows.
+
+    Encapsulates all parameters needed for diffrax-based ODE integration,
+    including solver choice, step size control, and adjoint method selection.
+    Provides convenient parameter override functionality for runtime configuration.
+
+    Args:
+        solver: Diffrax solver instance (default: Tsit5 adaptive solver).
+        t_start: Integration start time.
+        t_end: Integration end time.
+        dt: (Initial) Step size for integration.
+        saveat: Configuration for which time points to save.
+        stepsize_controller: Strategy for adaptive step size control.
+        adjoint: Adjoint method for gradient computation.
+        event: Optional event detection during integration.
+        max_steps: Maximum number of integration steps allowed.
+        throw: Whether to raise exceptions on integration failure.
+        solver_state: Initial solver internal state.
+        controller_state: Initial step size controller state.
+        made_jump: Whether the solver has made a discontinuous jump.
+
+    Note:
+        For more information, see [diffrax's documentation](https://docs.kidger.site/diffrax/).
+
+    Example:
+        >>> config = DiffraxConfig(
+        ...     solver=diffrax.Dopri5(),
+        ...     dt=0.1,
+        ...     adjoint=diffrax.RecursiveCheckpointAdjoint()
+        ... )
+    """
+
     solver: diffrax.AbstractSolver = diffrax.Tsit5()
     t_start: float = 0.0
     t_end: float = 1.0
@@ -52,6 +77,19 @@ class DiffraxConfig:
         solver_state: ftp.ArrayPytree | None = None,
         controller_state: ftp.ArrayPytree | None = None,
     ):
+        """Create new config with optionally overridden parameters.
+
+        Args:
+            t_start: Override integration start time.
+            t_end: Override integration end time.
+            dt: Override step size.
+            saveat: Override save configuration.
+            solver_state: Override solver internal state.
+            controller_state: Override step size controller state.
+
+        Returns:
+            New DiffraxConfig with specified parameters overridden.
+        """
         config = self
         if t_start is not None:
             config = config.replace(t_start=t_start)
@@ -69,6 +107,16 @@ class DiffraxConfig:
         return config
 
     def solve(self, terms, y0, args):
+        """Solve ODE using configured diffrax solver.
+
+        Args:
+            terms: Diffrax ODE terms defining the vector field.
+            y0: Initial condition.
+            args: Additional arguments passed to the vector field.
+
+        Returns:
+            Diffrax solution object containing integration results.
+        """
         dt = jnp.abs(self.dt) * jnp.sign(self.t_end - self.t_start)
 
         return diffrax.diffeqsolve(
@@ -91,8 +139,32 @@ class DiffraxConfig:
         )
 
 
+# odeint_rk4 is a modified version of the original odeint_rk4 function in
+# jax.experimental.ode.
+#
+# Adapted from https://github.com/google/jax/blob/main/jax/experimental/ode.py
+#
+# Copyright 2018 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
 def odeint_rk4(fun, y0, end_time, *args, step_size, start_time=0):
-    """Fixed step-size Runge-Kutta implementation.
+    """Fixed step-size Runge-Kutta implementation with custom adjoint.
+
+    Provides a lightweight RK4 integrator optimized for continuous normalizing
+    flows. Includes custom backward pass implementation using the adjoint method
+    for efficient gradient computation in neural ODE applications.
 
     Args:
         fun: Function ``(t, y, *args) -> dy/dt`` giving the time derivative at
@@ -103,9 +175,19 @@ def odeint_rk4(fun, y0, end_time, *args, step_size, start_time=0):
         ``*args``: Additional arguments for `func`.
         step_size: Step size for the fixed-grid solver.
         start_time: Initial time of the integration.
+
     Returns:
-        Final value `y` after the integration,
-        of the same shape and type as `y0`.
+        Final value `y` after the integration, of the same shape and type as `y0`.
+
+    Note:
+        The custom VJP implementation uses the adjoint method, integrating
+        backwards in time to compute gradients efficiently. This is particularly
+        important for neural ODEs where the forward pass can be very long.
+
+    Example:
+        >>> def vector_field(t, y):
+        ...     return -y  # Simple exponential decay
+        >>> y_final = odeint_rk4(vector_field, 1.0, 1.0, step_size=0.01)
     """
 
     # use other convention below...

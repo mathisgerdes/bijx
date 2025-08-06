@@ -1,6 +1,21 @@
-"""
-This module provides a suite of tools for numerical operations on Lie groups,
-with a particular focus on automatic differentiation.
+r"""
+Lie group operations and automatic differentiation tools.
+
+This module provides specialized tools for working with matrix Lie groups,
+particularly for applications in lattice field theory and gauge theories.
+It focuses on efficient automatic differentiation with respect to group
+elements, Haar measure sampling, and gradient computations on manifolds.
+
+Key functionality:
+    - Haar measure sampling for SU(N) groups
+    - Automatic differentiation with respect to matrix group elements
+    - Lie algebra projections and tangent space operations
+    - Specialized gradient operators for group-valued functions
+    - Matrix chain contractions and traces
+
+The implementation is optimized for SU(N) groups commonly used in
+lattice gauge theory, but should also generalize to other matrix groups such
+as O(N).
 """
 
 from functools import partial, wraps
@@ -44,10 +59,33 @@ SU3_GEN = 1j * jnp.array(
 
 
 def contract(*factors, trace=False, return_einsum_indices=False):
-    """Contrast chain of matrices.
+    r"""Contract chain of matrices with Einstein summation.
 
-    Except for last two axes (which are contracted), broadcast
-    factors from left to right (opposite of numpy).
+    Performs matrix multiplication chain $A_1 A_2 \cdots A_n$ with automatic
+    broadcasting over batch dimensions. The contraction follows left-to-right
+    order with proper index management for arbitrary numbers of factors.
+
+    Key features:
+        - Handles arbitrary number of matrix factors
+        - Automatic broadcasting over leading (batch) dimensions
+        - Optional trace computation for closed loops
+        - Can return einsum indices for debugging/inspection
+
+    Args:
+        factors: Sequence of arrays representing matrices to contract.
+            Each must have at least 2 dimensions (matrix dimensions).
+        trace: Whether to trace the result (connect first and last indices).
+        return_einsum_indices: Whether to return einsum index strings.
+
+    Returns:
+        Contracted result, or tuple (result, in_indices, out_indices)
+        if return_einsum_indices=True.
+
+    Example:
+        >>> A = jnp.ones((3, 4, 4))
+        >>> B = jnp.ones((3, 4, 4))
+        >>> C = contract(A, B)  # Shape (3, 4, 4)
+        >>> trace_AB = contract(A, B, trace=True)  # Shape (3,)
     """
     leading = [jnp.ndim(f) - 2 for f in factors]
     assert all(
@@ -71,11 +109,36 @@ def contract(*factors, trace=False, return_einsum_indices=False):
 
 
 def scalar_prod(a, b):
-    """Compute scalar product between lie algebra elements a & b."""
+    r"""Compute scalar product between Lie algebra elements.
+
+    Implements the standard scalar product on the Lie algebra:
+    $\langle A, B \rangle = \frac{1}{2} \text{tr}(A^\dagger B)$
+
+    Args:
+        a: First Lie algebra element.
+        b: Second Lie algebra element.
+
+    Returns:
+        Real scalar product value.
+
+    Note:
+        For skew-Hermitian matrices $A, B$, this gives a real result
+        and defines a positive definite inner product on the Lie algebra.
+    """
     return jnp.einsum("...ij,...ij", a.conj(), b) / 2
 
 
 def adjoint(arr):
+    r"""Compute conjugate transpose (adjoint) of matrix.
+
+    Returns the Hermitian conjugate $A^\dagger = (A^T)^*$ of the input matrix.
+
+    Args:
+        arr: Input matrix array.
+
+    Returns:
+        Conjugate transpose of the input.
+    """
     return arr.conj().swapaxes(-1, -2)
 
 
@@ -94,13 +157,44 @@ def _haar_transform(z):
 
 
 def _sample_haar(rng, n, count):
-    """Sample SU(N) matrices uniformly according to Haar measure."""
+    """Sample multiple SU(N) matrices uniformly according to Haar measure.
+
+    Uses the QR decomposition method to generate uniformly distributed
+    SU(N) matrices from Gaussian random matrices.
+
+    Args:
+        rng: Random key for sampling.
+        n: Dimension of SU(N) group.
+        count: Number of matrices to sample.
+
+    Returns:
+        Array of shape (count, n, n) containing SU(N) matrices.
+    """
     real_part, imag_part = 1 / np.sqrt(2) * jax.random.normal(rng, (2, count, n, n))
     z = real_part + 1j * imag_part
     return _haar_transform(z)
 
 
 def sample_haar(rng, n=2, batch_shape=()):
+    """Sample SU(N) matrices uniformly according to Haar measure.
+
+    Generates random SU(N) matrices distributed according to the unique
+    left- and right-invariant Haar measure on the group. This is the
+    standard uniform distribution for compact Lie groups.
+
+    Args:
+        rng: Random key for sampling.
+        n: Dimension of SU(N) group (default: SU(2)).
+        batch_shape: Shape of batch dimensions for multiple samples.
+
+    Returns:
+        SU(N) matrices of shape batch_shape + (n, n).
+
+    Example:
+        >>> key = jax.random.PRNGKey(42)
+        >>> su2_matrix = sample_haar(key, n=2)  # Single SU(2) matrix
+        >>> su3_batch = sample_haar(key, n=3, batch_shape=(10,))  # 10 SU(3) matrices
+    """
     if batch_shape == ():
         z = _sample_haar(rng, n, 1)
         return jnp.squeeze(z, axis=0)
@@ -109,22 +203,91 @@ def sample_haar(rng, n=2, batch_shape=()):
 
 
 class HaarDistribution(ArrayDistribution):
+    """Distribution of SU(N) matrices under Haar measure.
+
+    Implements the uniform distribution on the compact Lie group SU(N)
+    according to the normalized Haar measure. This is the unique left-
+    and right-invariant probability measure on the group.
+
+    The distribution can handle additional base shape dimensions for
+    applications like lattice gauge theory where matrices are assigned
+    to lattice sites and links.
+
+    Args:
+        n: Dimension of SU(N) group.
+        base_shape: Additional shape dimensions (e.g., lattice structure).
+        rngs: Random number generators for sampling.
+
+    Example:
+        >>> # SU(2) matrices on a 4x4 lattice with 4 link directions
+        >>> haar_dist = HaarDistribution.periodic_gauge_lattice(
+        ...     n=2, lat_shape=(4, 4), rngs=rngs
+        ... )
+        >>> samples, _ = haar_dist.sample((100,), rng=rngs.next())
+    """
+
     def __init__(self, n, base_shape=(), rngs=None):
+        """Initialize Haar measure distribution.
+
+        Args:
+            n: Dimension of SU(N) group.
+            base_shape: Additional shape dimensions before matrix dimensions.
+            rngs: Random number generators.
+        """
         super().__init__(event_shape=base_shape + (n, n), rngs=rngs)
         self.base_shape = base_shape
         self.n = n
 
     @classmethod
     def periodic_gauge_lattice(cls, n, lat_shape, rngs=None):
+        """Create Haar distribution for periodic gauge lattice.
+
+        Convenience constructor for lattice gauge theories with periodic
+        boundary conditions. Creates SU(N) matrices for each lattice site
+        and spatial direction.
+
+        Args:
+            n: Dimension of SU(N) gauge group.
+            lat_shape: Shape of the spatial lattice.
+            rngs: Random number generators.
+
+        Returns:
+            HaarDistribution with event shape lat_shape + (ndim, n, n)
+            where ndim = len(lat_shape) is the number of spatial dimensions.
+        """
         base_shape = (*lat_shape, len(lat_shape))
         return cls(n, base_shape, rngs)
 
     def sample(self, batch_shape, rng=None, **kwargs):
+        """Sample SU(N) matrices from Haar measure.
+
+        Args:
+            batch_shape: Shape of batch dimensions.
+            rng: Random key for sampling.
+            **kwargs: Additional arguments (unused).
+
+        Returns:
+            Tuple of (samples, log_density) where log_density is zero
+            since Haar measure is the uniform distribution.
+        """
         rng = self._get_rng(rng)
         samples = sample_haar(rng, self.n, batch_shape + self.base_shape)
         return samples, jnp.zeros(batch_shape)
 
     def log_density(self, x, **kwargs):
+        """Evaluate log density under Haar measure.
+
+        Args:
+            x: SU(N) matrices to evaluate.
+            **kwargs: Additional arguments (unused).
+
+        Returns:
+            Zero log density (uniform distribution on compact group).
+
+        Note:
+            The Haar measure is uniform, so the log density is constant
+            (zero after normalization).
+        """
         return jnp.zeros(x.shape[: -2 - len(self.base_shape)])
 
 
@@ -151,13 +314,28 @@ def _isolate_argument(fun, argnum, *args, **kwargs):
 
 
 def skew_traceless_cot(a, u):
-    """Project C^(nxn) cotangent to traceless skew hermitian & take dual.
+    r"""Project cotangent vector to SU(N) Lie algebra.
 
-    In other words, transforms the gradient form jax's backward pass
-    to an element of the Lie algebra for elements of SU(N).
-    This avoids taking a scalar product for each generator, which would be
-    a more general (and the default if generators are provided) method.
-    See implementation of grad.
+    Transforms the cotangent vector from JAX's backward pass into an
+    element of the SU(N) Lie algebra (traceless skew-Hermitian matrices).
+    This is the natural projection for SU(N) groups.
+
+    Mathematical operation:
+        1. Compute $A^\dagger$ (conjugate transpose of cotangent)
+        2. Transport to identity: $U A^\dagger$
+        3. Project to skew-Hermitian: $B - B^\dagger$
+        4. Project to traceless: $B - \frac{\text{tr}(B)}{n} I$
+
+    Args:
+        a: Cotangent vector from automatic differentiation.
+        u: Group element at which cotangent is evaluated.
+
+    Returns:
+        Element of SU(N) Lie algebra (traceless skew-Hermitian matrix).
+
+    Note:
+        This is more efficient than explicit projection using generators
+        as it avoids computing scalar products with each basis element.
     """
     # transform cotangent to tangent and
     # project to traceless skew hermitian matrices
@@ -184,22 +362,35 @@ def _proj(a, u, gen):
 
 
 def grad(fn, argnum=0, return_value=False, has_aux=False, algebra=skew_traceless_cot):
-    """Compute gradient of a function with respect to matrix group element.
+    r"""Compute gradient with respect to matrix Lie group element.
 
-    The argument `algebra` determines how the general back-pass gradient
-    is projected onto the tangent space.
+    Computes the Riemannian gradient $\nabla_g f(g)$ where $g$ is a matrix
+    Lie group element and $f$ is a scalar-valued function. The gradient
+    lies in the tangent space $T_g G$, which is isomorphic to the Lie algebra.
 
-    If `algebra` is a function (a, u) -> v, a manual projection can be
-    implemented. By default, a manual projection to SU(N) is performed with
-    the output tangent transported to the identity (i.e. lie algebra element).
+    The algebra parameter controls how the cotangent vector from automatic
+    differentiation is projected to the tangent space:
 
-    If `algebra` is an array, it is assumed to be a collection of basis
-    elements (under the scalar product tr(a^dagger b)/2) of the tangent space
-    at the identity. A projection is then performed by transporting the
-    back-pass gradient to the identity, and taking a scalar product with each
-    basis element to obtain components in this basis, and then constructing
-    a vector from these. Note that the implementation assumes the matrix group
-    is a subgroup of U(N).
+    - Function (a, u) -> v: Custom projection implementation
+    - Array of generators: Projection via scalar products with basis elements
+    - Default: Efficient SU(N) projection without explicit generators
+
+    Args:
+        fn: Scalar-valued function to differentiate.
+        argnum: Argument position of the group element.
+        return_value: Whether to return function value along with gradient.
+        has_aux: Whether fn returns auxiliary outputs.
+        algebra: Projection method (function) or generator basis (array).
+
+    Returns:
+        Function computing gradient, or (value, gradient) if return_value=True.
+
+    Example:
+        >>> def potential(U):
+        ...     return jnp.real(jnp.trace(U @ U.conj().T))
+        >>> grad_potential = grad(potential)
+        >>> U = sample_haar(key, n=2)
+        >>> gradient = grad_potential(U)  # Element of su(2) algebra
     """
     # algebra is either an array of generators, or a function doing
     # the appropriate cotangent -> tangent projection
@@ -277,30 +468,38 @@ def _local_curve(fun, gen, u, left=False):
 
 
 def curve_grad(fun, direction, argnum=0, has_aux=False, return_value=False, left=False):
-    """Take directional derivative of function.
+    r"""Compute directional derivative along group geodesic.
 
-    This is d/dt f(..., exp(t direction) u, ...) | t = 0.
+    Computes the directional derivative:
+    $\frac{d}{dt} f(\ldots, \exp(t \cdot \text{direction}) \cdot g, \ldots)\Big|_{t=0}$
 
-    Note that using this to compute the full gradient (i.e. to obtain the
-    components in the basis of generators, then multiply with generators to
-    obtain a vector) is less efficient than the implementation in grad.
-    The reason is that grad avoids doing one back-pass for each generator.
-    Using grad with manual projection is even faster as it avoids taking
-    scalar product with the set of basis elements altogether (either implicitly
-    as done here via curve gradients, or explicitly as in grad if specifying
-    as set of generators).
+    This gives the rate of change of the function along the geodesic in the
+    group generated by the specified Lie algebra direction.
+
+    Key features:
+        - Supports left or right group action (exp(tX)g vs g exp(tX))
+        - Uses custom JVP for efficient differentiation
+        - Can return function value simultaneously
 
     Args:
-        fun: Any function with lie-group input at given argnum.
-        direction: Lie algebra value specifying direction.
-        argnum: Position of lie-group input with respect to which gradient
-            is taken. Note, this must be a positional argument.
+        fun: Function to differentiate.
+        direction: Lie algebra element specifying the direction.
+        argnum: Position of group argument (must be positional).
         has_aux: Whether fun has auxiliary outputs.
+        return_value: Whether to return function value with derivative.
+        left: Whether to use left group action (default: right action).
 
     Returns:
-        Function with the same signature as fun.
-        The output is a single value or tuple
-        (value `if return_value`, gradient, aux_value `if has_aux`).
+        Function computing directional derivative with same signature as fun.
+
+    Note:
+        For computing full gradients, the :func:`grad` function is more
+        efficient as it avoids separate computations for each direction.
+
+    Example:
+        >>> direction = 1j * jnp.array([[0, 1], [-1, 0]])  # su(2) generator
+        >>> directional_grad = curve_grad(potential, direction)
+        >>> derivative = directional_grad(U)
     """
 
     @wraps(fun)
@@ -388,7 +587,29 @@ def _local_curve_vec(fun, gens, us):
 
 
 def path_grad(fun, gens, us):
-    """Compute first derivative with respect to (each) matrix input."""
+    """Compute gradient with respect to multiple matrix group inputs.
+
+    Computes gradients of a function with respect to each matrix input
+    in the PyTree ``us``. This is useful for functions that depend on multiple
+    group elements simultaneously.
+
+    Args:
+        fun: Function to differentiate.
+        gens: Generator basis for the Lie algebra.
+        us: PyTree of matrix group elements.
+
+    Returns:
+        Tuple of (function_value, gradient_tree) where gradient_tree
+        has the same structure as us but with additional generator dimension.
+
+    Example:
+        >>> gens = SU2_GEN  # su(2) generators
+        >>> U1, U2 = sample_haar(rngs(), 2, (2,))
+        >>> def action(us):
+        ...     U1, U2 = us
+        ...     return jnp.real(jnp.trace(U1 @ U2))
+        >>> value, grads = path_grad(action, gens, [U1, U2])
+    """
     ts = jax.tree.map(lambda u: np.zeros(u.shape[:-2] + (len(gens),)), us)
 
     ts_basis = _std_basis(ts)

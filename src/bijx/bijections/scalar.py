@@ -75,6 +75,11 @@ def sum_log_jac(x, log_density, log_jac):
         Updated log density with Jacobian contributions summed over events.
     """
     event_dim = jnp.ndim(x) - jnp.ndim(log_density)
+
+    # Handle scalar case where there are no event dimensions to sum over
+    if event_dim <= 0:
+        return log_density + log_jac
+
     si = ShapeInfo(event_dim=event_dim, channel_dim=0)
     _, si = si.process_event(jnp.shape(x))
     return log_density + jnp.sum(log_jac, axis=si.event_axes)
@@ -425,8 +430,8 @@ class Sinh(ScalarBijection):
 
     Maps the real line to itself using the hyperbolic sine function.
     This provides a smooth, odd function that grows exponentially for large
-    |x| while remaining approximately linear near zero.
-    Becomes numerically unstable for large |x|.
+    $\abs{x}$ while remaining approximately linear near zero.
+    Becomes numerically unstable for large $\abs{x}$.
 
     Type: $[-\infty, \infty] \to [-\infty, \infty]$
 
@@ -539,7 +544,7 @@ class Scaling(ScalarBijection):
         )
 
     def log_jac(self, x, y, **kwargs):
-        return jnp.log(jnp.abs(self.scale.value))
+        return jnp.broadcast_to(jnp.log(jnp.abs(self.scale.value)), jnp.shape(x))
 
     def fwd(self, x, **kwargs):
         return x * self.scale.value

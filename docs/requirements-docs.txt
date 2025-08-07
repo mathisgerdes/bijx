@@ -4,6 +4,7 @@ furo
 myst-nb
 sphinx-autodoc-typehints
 sphinx-copybutton
+sphinx-math-dollar
 ipykernel
 ipywidgets
 matplotlib

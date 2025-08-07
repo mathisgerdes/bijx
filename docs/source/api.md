@@ -2,31 +2,45 @@
 
 This section provides comprehensive documentation for all bijx components, organized by functionality.
 
-## Core Components
-
-The foundation of bijx consists of two main abstractions and their supporting infrastructure.
-
-### Base Classes
+## Main components
 
 ```{eval-rst}
-.. currentmodule:: bijx
+.. automodule:: bijx
 
+.. currentmodule:: bijx
+```
+
+### Core Classes and Base Types
+```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
 
    Bijection
    Distribution
+   ArrayDistribution
    ApplyBijection
 ```
 
-## Bijections
+### Distributions
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
 
-Invertible transformations that form the building blocks of normalizing flows.
+   IndependentNormal
+   IndependentUniform
+   DiagonalGMM
+```
 
-### Meta-Bijections
+### Sampling and Transforms
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
 
-Composition and transformation utilities for building complex flows.
+   Transformed
+   BufferedSampler
+```
 
+### Bijection Composition and Meta-bijections
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
@@ -34,76 +48,34 @@ Composition and transformation utilities for building complex flows.
    Chain
    ScanChain
    Inverse
+   CondInverse
    Frozen
-   MetaLayer
 ```
 
-### Linear Transformations
-
-Simple but essential transformations for scaling, shifting, and reshaping.
+"Meta" bijections that do not change the log-density.
 
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
 
-   Scaling
-   Shift
+   MetaLayer
    ExpandDims
    SqueezeDims
    Reshape
 ```
 
-### One-Dimensional Bijections
-
-Element-wise transformations that can be composed into coupling layers.
-
+### General Coupling and Masking
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
 
-   ScalarBijection
-   BetaStretch
-   GaussianCDF
-   Sigmoid
-   Tanh
-   Tan
-   Sinh
-   Exponential
-   SoftPlus
-   Power
-   AffineLinear
-```
-
-### Coupling Layers
-
-Sophisticated transformations that update subsets of variables conditioned on others.
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-
-   BinaryMask
-   ModuleReconstructor
    GeneralCouplingLayer
+   BinaryMask
    checker_mask
+   ModuleReconstructor
 ```
 
-### Advanced Coupling Components
-
-Components available from specific submodules for advanced use cases.
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-
-   bijections.AutoVmapReconstructor
-```
-
-
-### Spline Transformations
-
-Flexible piecewise transformations for smooth, expressive flows.
-
+### Spline Bijections
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
@@ -113,157 +85,48 @@ Flexible piecewise transformations for smooth, expressive flows.
 ```
 
 ### Continuous Flows
-
-ODE-based bijections for continuous-time dynamics.
-
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
 
-   ContFlowRK4
-   ContFlowDiffrax
    ContFlowCG
+   ContFlowDiffrax
+   ContFlowRK4
    ConvCNF
    AutoJacVF
 ```
 
-### Fourier-Space Transformations
+### One-dimensional Bijections
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
 
-Novel bijections operating in frequency domain for spatially-correlated systems.
+   ScalarBijection
+   AffineLinear
+   Scaling
+   Shift
+   BetaStretch
+   Exponential
+   GaussianCDF
+   Power
+   Sigmoid
+   Sinh
+   SoftPlus
+   Tan
+   Tanh
+```
 
+### Fourier and Physics-specific Bijections
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
 
    ToFourierData
-   SpectrumScaling
    FreeTheoryScaling
+   SpectrumScaling
 ```
 
-## Distributions
-
-Probability distributions providing the foundation for normalizing flows.
-
-### Basic Distributions
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-
-   ArrayDistribution
-   IndependentNormal
-   IndependentUniform
-   DiagonalGMM
-```
-
-## Neural Networks
-
-Building blocks for constructing neural networks within flows.
-
-### Neural Network Architectures
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-
-   nn.nets
-   nn.conv
-   nn.embeddings
-   nn.features
-```
-
-### Convolution Layers
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-
-   ConvSym
-   kernel_d4
-   kernel_equidist
-```
-
-### Embeddings
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-
-   KernelFourier
-   KernelGauss
-   KernelLin
-   KernelReduced
-   PositionalEmbedding
-```
-
-### Feature Transformations
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-
-   ConcatFeatures
-   DivFeatures
-   FourierFeatures
-   NonlinearFeatures
-   PolynomialFeatures
-```
-
-## Lattice Field Theory
-
-Specialized components for lattice field theory applications.
-
-### Scalar Field Theory
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-
-   lattice.scalar
-```
-
-### Gauge Theory
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-
-   lattice.gauge
-```
-
-## Fourier Utilities
-
-Fourier transform utilities and representations.
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-
-   fft_momenta
-   FFTRep
-   FourierData
-   FourierMeta
-```
-
-## MCMC & Sampling
-
-Markov Chain Monte Carlo samplers and utilities.
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-
-   IMH
-   IMHState
-   IMHInfo
-   BufferedSampler
-   Transformed
-```
-
-## ODE Solvers
-
-Numerical integration for continuous normalizing flows.
-
+### ODE Solvers
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
@@ -272,10 +135,7 @@ Numerical integration for continuous normalizing flows.
    odeint_rk4
 ```
 
-## Utilities
-
-Helper functions and utilities for common operations.
-
+### Utilities
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
@@ -288,37 +148,33 @@ Helper functions and utilities for common operations.
    moving_average
    noise_model
    reverse_dkl
+   load_shapes_magic
 ```
 
-## Lie Group Operations
+## Submodules
 
-Differentiable operations on Lie groups and manifolds.
+Core submodules provide tools for lattice field theory, Fourier transformations, and more.
 
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
 
+   fourier
    lie
-```
-
-## Crouch-Grossmann Integration
-
-Structure-preserving ODE integration for matrix Lie groups.
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-
    cg
+   lattice
+   lattice.gauge
+   lattice.scalar
 ```
 
-## FlowJAX Integration
-
-Bridge components for interoperability with FlowJAX library.
+`bijx.nn` provides building blocks for neural networks and prototyping.
 
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
 
-   flowjax
+   nn.conv
+   nn.embeddings
+   nn.features
+   nn.nets
 ```

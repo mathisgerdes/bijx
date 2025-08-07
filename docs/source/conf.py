@@ -30,6 +30,7 @@ else:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
+    "sphinx_math_dollar",  # Load first to process dollar math before autodoc
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
@@ -41,6 +42,12 @@ extensions = [
     "sphinx_autodoc_typehints",
     "sphinx_copybutton",
 ]
+
+
+mathjax3_config = {
+    "loader": {"load": ["[tex]/physics"]},
+    "tex": {"packages": {"[+]": ["physics"]}},
+}
 
 
 # Custom function to handle autodoc warnings and improve API cleanliness
@@ -106,7 +113,8 @@ autodoc_default_options = {
 # Include class inheritance information
 autodoc_class_signature = "separated"
 autodoc_member_order = "bysource"
-autodoc_typehints = "signature"
+autodoc_typehints = "description"
+autodoc_typehints_format = "short"
 
 templates_path = ["_templates"]
 exclude_patterns = []
@@ -162,3 +170,11 @@ myst_enable_extensions = [
     "substitution",
 ]
 myst_url_schemes = ["http", "https", "mailto"]
+
+# MyST configuration (dollarmath disabled for docstrings, handled by sphinx-math-dollar)
+myst_dmath_allow_space = True
+myst_dmath_allow_digits = True
+myst_dmath_allow_labels = True
+myst_update_mathjax = False  # Let sphinx-math-dollar handle MathJax config
+
+myst_heading_anchors = 3

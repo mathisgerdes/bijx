@@ -48,18 +48,19 @@ class ButcherTableau:
 
     For explicit methods: $a_{ij} = 0$ for $j \geq i$.
     Consistency requires: $c_i = \sum_j a_{ij}$ and $\sum_i b_i = 1$.
-
-    Attributes:
-        stages: Number of stages $s$ in the method.
-        a: Coefficient matrix $(a_{ij})$ as nested tuples.
-        b: Weight vector $(b_i)$ as tuple.
-        c: Node vector $(c_i)$ as tuple (computed from $a$).
     """
 
     stages: int
+    """Number of stages $s$ in the method."""
+
     a: tuple[tuple[int, ...]]
+    """Coefficient matrix $(a_{ij})$ as nested tuples."""
+
     b: tuple[int, ...]
+    """Weight vector $(b_i)$ as tuple."""
+
     c: tuple[int, ...]
+    """Node vector $(c_i)$ as tuple (computed from $a$)."""
 
     @classmethod
     def from_ab(cls, a, b):

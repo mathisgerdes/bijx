@@ -334,8 +334,8 @@ class DiagonalGMM(Distribution):
             rng: Random key for sampling, or None to use internal rngs.
 
         Returns:
-            Tuple of (samples, log_densities) where samples have shape
-            (*batch_shape, data_dim) and log_densities have shape batch_shape.
+            Tuple of ``(samples, log_densities)`` where samples have shape
+            ``(*batch_shape, data_dim)`` and log_densities have shape ``batch_shape``.
         """
         count = int(np.prod(batch_shape) if batch_shape else 1)
         rng = self.rngs.sample() if rng is None else rng

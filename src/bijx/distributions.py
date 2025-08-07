@@ -82,7 +82,7 @@ class Distribution(nnx.Module):
 
         Returns:
             Tuple of (samples, log_densities) where samples have shape
-            (*batch_shape, *event_shape) and log_densities have shape batch_shape.
+            ``(*batch_shape, *event_shape)`` and log_densities have shape batch_shape.
         """
         raise NotImplementedError()
 

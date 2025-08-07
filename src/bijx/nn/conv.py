@@ -52,9 +52,10 @@ def conv_indices(shape: tuple[int, ...], return_flat=True, center=True):
         center: If True, center indices around lattice midpoint.
 
     Returns:
-        Index array with shape [spatial_rank, *shape, *shape] if return_flat=False,
-        or [spatial_rank, prod(shape), prod(shape)] if return_flat=True.
-        Entry [i, x, y] contains the i-th component of displacement (y-x).
+        Index array with shape ``[spatial_rank, *shape, *shape]`` if
+        ``return_flat=False``, or ``[spatial_rank, prod(shape), prod(shape)]``
+        if ``return_flat=True``.
+        Entry ``[i, x, y]`` contains the i-th component of displacement ``(y-x)``.
     """
     xs_grid = np.indices(shape)
     flat = np.reshape(xs_grid, (len(shape), np.prod(shape)))
@@ -331,8 +332,9 @@ def unfold_kernel(kernel_params: jnp.ndarray, orbits: jnp.ndarray) -> jnp.ndarra
         orbits: Integer array giving the orbit index for each lattice site.
 
     Returns:
-        Full convolution kernel with shape (*lattice_shape, in_channels, out_channels)
-        where lattice_shape matches the shape of the orbits array.
+        Full convolution kernel with shape
+        ``(*lattice_shape, in_channels, out_channels)``
+        where ``lattice_shape`` matches the shape of the orbits array.
     """
     return kernel_params[orbits]
 
@@ -363,7 +365,7 @@ def resize_kernel_weights(
 
     Args:
         kernel: Convolution kernel to resize with shape
-            (*spatial_dims, in_channels, out_channels).
+            ``(*spatial_dims, in_channels, out_channels)``.
         new_shape: Target spatial dimensions. Can be integer (for square kernel)
             or tuple specifying each dimension.
         mode: Padding mode for dimensions beyond the original kernel size.

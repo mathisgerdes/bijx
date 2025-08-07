@@ -174,7 +174,7 @@ class FreeTheoryScaling(SpectrumScaling):
 
 
 class ToFourierData(Bijection):
-    """Bijection for converting between real and Fourier data representations.
+    r"""Bijection for converting between real and Fourier data representations.
 
     Provides a bijective transformation between real-space arrays and their
     various Fourier representations (FFT output, independent components, etc.).

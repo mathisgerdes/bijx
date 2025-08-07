@@ -35,7 +35,7 @@ def fft_momenta(
         unit: If True, return integer indices instead of momentum values.
 
     Returns:
-        Momentum grid array with shape (*spatial_shape, spatial_rank).
+        Momentum grid array with shape ``(*spatial_shape, spatial_rank)``.
         For continuum: momenta in units of 2π/L.
         For lattice: momenta appropriate for lattice derivatives.
 

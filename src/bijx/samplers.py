@@ -27,7 +27,7 @@ class Transformed(Distribution):
     r"""Distribution obtained by applying a bijection to a base distribution.
 
     Implements the pushforward distribution
-    $p_Y(y) = p_X(f^{-1}(y)) |\det J_{f^{-1}}(y)|$
+    $p_Y(y) = p_X(f^{-1}(y)) \abs{\det J_{f^{-1}}(y)}$
     where $Y = f(X)$ and $f$ is the bijection.
 
     The transformed distribution supports both sampling (by transforming samples

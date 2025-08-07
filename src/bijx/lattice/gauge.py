@@ -82,8 +82,8 @@ def flip_axis(lat, axis: int):
 
     Performs a parity transformation (reflection) along one spatial axis,
     properly handling the gauge field transformation under coordinate inversion.
-    Under reflection $x_\mu \to -x_\mu$, gauge links transform as:
-    $U_\mu(x) \to U_\mu^\dagger(x - \hat{\mu})$
+    Under reflection :math:`x_\mu \to -x_\mu`, gauge links transform as:
+    :math:`U_\mu(x) \to U_\mu^\dagger(x - \hat{\mu})`
 
     This ensures gauge invariance is preserved under the reflection symmetry.
 
@@ -148,8 +148,8 @@ def apply_gauge_sym(lat, gs):
     r"""Apply gauge transformation to lattice gauge field configuration.
 
     Performs a local SU(N) gauge transformation on the gauge field configuration.
-    Under a gauge transformation $g(x) \in SU(N)$, gauge links transform as:
-    $U_\mu(x) \to g(x) U_\mu(x) g^\dagger(x + \hat{\mu})$
+    Under a gauge transformation :math:`g(x) \in SU(N)`, gauge links transform as:
+    :math:`U_\mu(x) \to g(x) U_\mu(x) g^\dagger(x + \hat{\mu})`
 
     Args:
         lat: Gauge field configuration of shape $(L_0, ..., L_{d-1}, d, N, N)$.

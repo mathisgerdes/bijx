@@ -253,7 +253,7 @@ def correlation_length(two_point: jax.Array) -> jax.Array:
     suitable time slices.
 
     This method assumes the correlator has the asymptotic form
-    $G(x) \sim e^{-|x|/\xi}$ for large separations.
+    $G(x) \sim e^{-\abs{x}/\xi}$ for large separations.
 
     Args:
         two_point: Connected two-point correlation function, typically

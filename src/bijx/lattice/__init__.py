@@ -1,3 +1,9 @@
+"""
+Methods for manipulating lattice field configurations.
+
+Includes both scalar and gauge fields, generally assuming periodic boundary conditions.
+"""
+
 from . import scalar, gauge
 
 # only export things where application domain (e.g. gauge vs scalar) is clear

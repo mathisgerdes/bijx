@@ -11,13 +11,13 @@ Reference:
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
-from jax_autovmap import auto_vmap
+from jax_autovmap import autovmap
 
 from ..utils import ShapeInfo
 from .base import ApplyBijection
 
 
-@auto_vmap(inputs=0, bin_widths=1, bin_heights=1, knot_slopes=1)
+@autovmap(inputs=0, bin_widths=1, bin_heights=1, knot_slopes=1)
 def rational_quadratic_spline(
     inputs,
     bin_widths,

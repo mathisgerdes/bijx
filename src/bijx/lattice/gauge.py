@@ -7,7 +7,7 @@ lattices with periodic boundary conditions.
 import jax
 import jax.numpy as jnp
 from einops import einsum
-from jax_autovmap import auto_vmap
+from jax_autovmap import autovmap
 
 
 def roll_lattice(lattice, loc, invert=False):
@@ -273,7 +273,7 @@ def wilson_log_prob(lat: jax.Array, beta: float) -> jax.Array:
         ()
     """
     lat_dim = jnp.shape(lat)[-3]
-    return auto_vmap(lat_dim + 3, 0)(_wilson_log_prob)(lat, beta)
+    return autovmap(lat_dim + 3, 0)(_wilson_log_prob)(lat, beta)
 
 
 def wilson_action(lat: jax.Array, beta: float) -> jax.Array:

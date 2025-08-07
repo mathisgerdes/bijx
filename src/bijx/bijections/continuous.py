@@ -28,7 +28,7 @@ import diffrax
 import flax.nnx as nnx
 import jax
 import jax.numpy as jnp
-from jax_autovmap import auto_vmap
+from jax_autovmap import autovmap
 
 from .. import cg
 from ..solvers import DiffraxConfig, odeint_rk4
@@ -392,7 +392,7 @@ def _ndim_jacobian(func, event_dim):
         v, jac = jax.jvp(_func, (x_flat,), (tang,))
         return v.reshape(v.shape[:-1] + _info.event_shape), jac
 
-    @auto_vmap(event_dim)
+    @autovmap(event_dim)
     def call_and_jac(x):
         _, _info = info.process_event(jnp.shape(x))
         tang_basis = jnp.eye(_info.event_size)

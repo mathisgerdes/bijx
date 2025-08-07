@@ -13,7 +13,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
-from jax_autovmap import auto_vmap
+from jax_autovmap import autovmap
 
 from .utils import ShapeInfo, default_wrap
 
@@ -292,7 +292,7 @@ class DiagonalGMM(Distribution):
     def weights(self):
         return self.process_weights(self._weights.value)
 
-    @auto_vmap(x=1)
+    @autovmap(x=1)
     def log_density(self, x):
         """Compute log probability density of the Gaussian mixture model.
 

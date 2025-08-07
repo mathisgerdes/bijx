@@ -28,7 +28,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
-from jax_autovmap import auto_vmap
+from jax_autovmap import autovmap
 
 from ..utils import Const
 from .base import Bijection
@@ -437,23 +437,23 @@ class ModuleReconstructor:
     def from_params(
         self,
         params: dict | list[jax.Array] | jax.Array | nnx.State,
-        auto_vmap: bool = False,
+        autovmap: bool = False,
     ):
         """Reconstructs the module from different parameter representations.
 
         This method dispatches to the correct reconstruction logic based on the
         input type.
 
-        If auto_vmap is True, an object is returned that behaves almost like
+        If autovmap is True, an object is returned that behaves almost like
         the module except that function calls are automatically vectorized
         (via vmap) over parameters and inputs.
 
         Args:
             params: Can be a single array, a list of arrays, a dict, or a
                 full nnx state.
-            auto_vmap: If True, wrap the reconstruction in an AutoVmapReconstructor.
+            autovmap: If True, wrap the reconstruction in an AutoVmapReconstructor.
         """
-        if auto_vmap:
+        if autovmap:
             return AutoVmapReconstructor(
                 self,
                 params,
@@ -530,7 +530,7 @@ class AutoVmapReconstructor:
         >>> batched_params = jnp.zeros((batch_size, template.params_total_size))
         >>>
         >>> # Create auto-vmapped version
-        >>> auto_bij = template.from_params(batched_params, auto_vmap=True)
+        >>> auto_bij = template.from_params(batched_params, autovmap=True)
         >>>
         >>> # Function calls are automatically vectorized
         >>> x = jnp.ones((batch_size, event_size))
@@ -547,7 +547,7 @@ class AutoVmapReconstructor:
         input_ranks = tuple(input_ranks)
         input_ranks += (None,) * (len(args) - len(input_ranks))
 
-        @auto_vmap(
+        @autovmap(
             self.params_rank,
             input_ranks,
         )
@@ -709,7 +709,7 @@ class GeneralCouplingLayer(Bijection):
             dens_shape = jnp.shape(log_density) + (1,) * broadcast_rank
 
         params = self.embedding_net(passive)
-        bijection = self.bijection_reconstructor.from_params(params, auto_vmap=True)
+        bijection = self.bijection_reconstructor.from_params(params, autovmap=True)
 
         method = bijection.reverse if inverse else bijection.forward
         active, delta_log_density = method(

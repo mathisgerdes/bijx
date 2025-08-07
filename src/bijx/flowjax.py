@@ -29,7 +29,7 @@ import flowjax.distributions
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from jax_autovmap import auto_vmap
+from jax_autovmap import autovmap
 
 from .bijections.base import Bijection
 from .distributions import Distribution
@@ -75,7 +75,7 @@ class FlowjaxToBijxBijection(Bijection):
         ranks = {"x": len(state_shape), "log_density": 0}
         if conditional_shape is not None:
             ranks["condition"] = len(conditional_shape)
-        self.apply = auto_vmap(**ranks)(_apply)
+        self.apply = autovmap(**ranks)(_apply)
 
     @property
     def flowjax_bijection(self):

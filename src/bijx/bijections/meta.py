@@ -20,6 +20,14 @@ import jax.numpy as jnp
 
 from .base import Bijection
 
+__all__ = [
+    "MetaLayer",
+    "ExpandDims",
+    "SqueezeDims",
+    "Reshape",
+    "Partial",
+]
+
 
 class MetaLayer(Bijection):
     """Convenient constructor for bijections that preserve probability density.

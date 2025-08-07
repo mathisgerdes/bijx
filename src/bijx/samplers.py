@@ -22,6 +22,11 @@ from flax import nnx
 from .bijections.base import Bijection
 from .distributions import Distribution
 
+__all__ = [
+    "Transformed",
+    "BufferedSampler",
+]
+
 
 class Transformed(Distribution):
     r"""Distribution obtained by applying a bijection to a base distribution.

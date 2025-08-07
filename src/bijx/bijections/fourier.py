@@ -5,9 +5,9 @@ This module implements bijections that operate in Fourier space, particularly
 useful when spatial symmetries are present (e.g. lattice field theory).
 
 Key components:
-- :class:`SpectrumScaling`: Diagonal scaling in Fourier space
-- :class:`FreeTheoryScaling`: Physics-motivated spectral scaling
-- :class:`ToFourierData`: Conversion between real and Fourier representations
+    - ``SpectrumScaling``: Diagonal scaling in Fourier space
+    - ``FreeTheoryScaling``: Physics-motivated spectral scaling
+    - ``ToFourierData``: Conversion between real and Fourier representations
 """
 
 import jax
@@ -17,6 +17,12 @@ from flax import nnx
 from ..fourier import FFTRep, FourierData, FourierMeta, fft_momenta
 from ..utils import Const, ShapeInfo
 from .base import ApplyBijection, Bijection
+
+__all__ = [
+    "SpectrumScaling",
+    "FreeTheoryScaling",
+    "ToFourierData",
+]
 
 
 class SpectrumScaling(ApplyBijection):

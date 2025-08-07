@@ -18,6 +18,11 @@ from jax import core, custom_derivatives
 from jax.experimental.ode import api_util, ravel_first_arg
 from jax.flatten_util import ravel_pytree
 
+__all__ = [
+    "DiffraxConfig",
+    "odeint_rk4",
+]
+
 
 @flax.struct.dataclass
 class DiffraxConfig:

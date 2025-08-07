@@ -1,4 +1,4 @@
-"""Scalar field theory utilities for lattice quantum field theory.
+"""Scalar field theory utilities.
 
 This module provides computational tools for scalar field theory on discrete
 lattices with periodic boundary conditions. It implements correlation function

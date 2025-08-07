@@ -15,6 +15,18 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
+__all__ = [
+    "Const",
+    "FrozenFilter",
+    "ShapeInfo",
+    "default_wrap",
+    "effective_sample_size",
+    "moving_average",
+    "noise_model",
+    "reverse_dkl",
+    "load_shapes_magic",
+]
+
 
 class Const(nnx.Variable):
     """Mark a variable as constant during training.

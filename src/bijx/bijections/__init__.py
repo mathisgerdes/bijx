@@ -1,73 +1,20 @@
 """
-Bijections package.
+Bijections. Not to be exported as a module.
 """
 
-from .base import (
-    Bijection,
-    ApplyBijection,
-    Chain,
-    ScanChain,
-    Frozen,
-    Inverse,
-    CondInverse,
-)
-from .continuous import ContFlowDiffrax, ContFlowRK4, ContFlowCG, AutoJacVF
-from .conv_cnf import ConvCNF
-from .coupling import (
-    checker_mask,
-    ModuleReconstructor,
-    BinaryMask,
-    GeneralCouplingLayer,
-    AutoVmapReconstructor,
-)
-from .fourier import SpectrumScaling, FreeTheoryScaling, ToFourierData
-from .meta import MetaLayer, ExpandDims, SqueezeDims, Reshape
-from .scalar import *
-from .splines import (
-    MonotoneRQSpline,
-    rational_quadratic_spline,
-)
+from . import base, continuous, conv_cnf, coupling, fourier, meta, scalar, splines
 
-__all__ = [
-    # Base classes
-    "Bijection",
-    "ApplyBijection",
-    "Chain",
-    "ScanChain",
-    "Frozen",
-    "Inverse",
-    "CondInverse",
-    # Continuous flows
-    "ContFlowDiffrax",
-    "ContFlowRK4",
-    "ContFlowCG",
-    "AutoJacVF",
-    "ConvCNF",
-    # Coupling layers
-    "checker_mask",
-    "ModuleReconstructor",
-    "BinaryMask",
-    "GeneralCouplingLayer",
-    "AutoVmapReconstructor",
-    # Fourier-space bijections
-    "SpectrumScaling",
-    "FreeTheoryScaling",
-    "ToFourierData",
-    # Linear transformations
-    "Scaling",
-    "ScalarBijection",
-    "Shift",
-    "AffineLinear",
-    # Meta transformations
-    "MetaLayer",
-    "ExpandDims",
-    "SqueezeDims",
-    "Reshape",
-    # Splines
-    "MonotoneRQSpline",
-    "rational_quadratic_spline",
-    # Fourier
-    "Fourier",
-    "FourierBasis",
-    "FourierSeries",
-]
+from .base import *
+from .continuous import *
+from .conv_cnf import *
+from .coupling import *
+from .fourier import *
+from .meta import *
+from .scalar import *
+from .splines import *
+
+# Collect __all__ from all submodules to prevent module names from being exported
+__all__ = []
+for module in [base, continuous, conv_cnf, coupling, fourier, meta, scalar, splines]:
+    if hasattr(module, "__all__"):
+        __all__.extend(module.__all__)

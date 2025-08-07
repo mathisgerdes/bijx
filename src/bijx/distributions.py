@@ -17,6 +17,14 @@ from jax_autovmap import autovmap
 
 from .utils import ShapeInfo, default_wrap
 
+__all__ = [
+    "Distribution",
+    "ArrayDistribution",
+    "IndependentNormal",
+    "IndependentUniform",
+    "DiagonalGMM",
+]
+
 
 class Distribution(nnx.Module):
     """Base class for all probability distributions.

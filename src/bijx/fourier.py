@@ -15,6 +15,14 @@ import numpy as np
 
 from .utils import ShapeInfo
 
+__all__ = [
+    # Core Fourier utilities
+    "fft_momenta",
+    "FourierMeta",
+    "FFTRep",
+    "FourierData",
+]
+
 
 def fft_momenta(
     shape: tuple[int, ...],

@@ -20,10 +20,12 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      JAX_PLATFORMS: cpu
     steps:
       - id: deployment
         uses: sphinx-notes/pages@v3
         with:
-          documentation_path: ./docs
+          documentation_path: ./docs/source
           pyproject_extras: docs
           publish: true

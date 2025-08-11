@@ -30,7 +30,11 @@ from . import (
 )
 
 # Version
-from ._version import __version__
+try:
+    from ._version import __version__
+except Exception:
+    # Fallback for environments where setuptools_scm didn't populate _version yet
+    __version__ = "0.0.dev0"
 
 # Core modules - fully exported to top level
 from .bijections import *

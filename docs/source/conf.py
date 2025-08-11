@@ -7,24 +7,27 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 import os
 import sys
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as get_pkg_version
+from pathlib import Path
 
-sys.path.insert(0, os.path.abspath("../../src"))
+# Make the package source importable without installation
+DOCS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = DOCS_DIR.parent.parent  # <repo>/docs/source -> up twice to repo root
+SRC_DIR = REPO_ROOT / "src"
+sys.path.insert(0, str(SRC_DIR))
 
 project = "bijx"
 copyright = "2025, Mathis Gerdes"
 author = "Mathis Gerdes"
 
-from bijx import __version__
-
-# Clean up development version strings like "0.1.dev57+g4e39c13.d20250126"
-if "dev" in __version__:
-    # For dev versions, just show "0.1-dev"
-    base_version = __version__.split(".dev")[0]
-    release = f"{base_version}-dev"
-    version = base_version
-else:
-    release = __version__
-    version = ".".join(release.split(".")[:2])
+# Resolve project version without importing the package to avoid heavy deps during config
+try:
+    release = get_pkg_version("bijx")
+except PackageNotFoundError:
+    # Fallback when package is not installed in the docs build env
+    release = os.environ.get("BIJX_DOCS_VERSION", "0.0.dev0")
+version = ".".join(release.split(".")[:2])
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

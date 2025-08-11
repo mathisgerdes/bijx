@@ -42,6 +42,19 @@ dev = [
     "pytest>=7.0",
     "flowjax>=0.3.0"
 ]
+docs = [
+    "sphinx",
+    "furo",
+    "myst-nb",
+    "sphinx-autodoc-typehints",
+    "sphinx-copybutton",
+    "sphinx-math-dollar",
+    "numpydoc",
+    "ipykernel",
+    "ipywidgets",
+    "matplotlib",
+    "numpy",
+]
 
 [tool.setuptools_scm]
 write_to = "src/bijx/_version.py"

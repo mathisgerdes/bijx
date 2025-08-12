@@ -62,6 +62,7 @@ This section provides comprehensive documentation for all bijx components, organ
    ExpandDims
    SqueezeDims
    Reshape
+   Partial
 ```
 
 ### General Coupling and Masking
@@ -179,6 +180,16 @@ Core submodules provide tools for lattice field theory, Fourier transformations,
    lattice
    lattice.gauge
    lattice.scalar
+```
+
+For interfacing with [flowjax](https://github.com/danielward27/flowjax),the following submodule can be used.
+Since flowjax is not an explicit dependency of bijx, it has to be imported explicitly.
+
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
+
+   flowjax
 ```
 
 `bijx.nn` provides building blocks for neural networks and prototyping.

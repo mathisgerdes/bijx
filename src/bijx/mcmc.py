@@ -23,31 +23,26 @@ class IMHState:
 
     Stores current position and associated log probabilities for both
     target and proposal distributions.
-
-    Attributes:
-        position: Current sample position in the state space.
-        log_prob_target: Log probability of position under target distribution.
-        log_prob_proposal: Log probability of position under proposal distribution.
     """
 
     position: flax.typing.ArrayPytree
+    """Current sample position in the state space."""
     log_prob_target: float
+    """Log probability of position under target distribution."""
     log_prob_proposal: float
+    """Log probability of position under proposal distribution."""
 
 
 @flax.struct.dataclass
 class IMHInfo:
-    """Information about the IMH sampling step.
-
-    Attributes:
-        is_accepted: Whether the proposed move was accepted.
-        accept_prob: Acceptance probability for the proposed move.
-        proposal: The proposed state that was considered.
-    """
+    """Information about the IMH sampling step."""
 
     is_accepted: bool
+    """Whether the proposed move was accepted."""
     accept_prob: float
+    """Acceptance probability for the proposed move."""
     proposal: IMHState
+    """The proposed state that was considered."""
 
 
 class IMH(nnx.Module):

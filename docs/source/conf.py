@@ -23,11 +23,11 @@ author = "Mathis Gerdes"
 
 # Resolve project version without importing the package to avoid heavy deps during config
 try:
-    release = get_pkg_version("bijx")
+    _release = get_pkg_version("bijx")
 except PackageNotFoundError:
     # Fallback when package is not installed in the docs build env
-    release = os.environ.get("BIJX_DOCS_VERSION", "0.0.dev0")
-version = ".".join(release.split(".")[:2])
+    _release = os.environ.get("BIJX_DOCS_VERSION", "0.0.dev0")
+release = ".".join(_release.split(".")[:2])
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

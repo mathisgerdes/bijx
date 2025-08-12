@@ -182,7 +182,9 @@ class Partial(Bijection):
 
     def _kwargs(self, kwargs):
         """Update default kwargs with additional kwargs."""
-        return self.kwargs.copy().update(kwargs)
+        full_kwargs = self.kwargs.copy()
+        full_kwargs.update(kwargs)
+        return full_kwargs
 
     def forward(self, x, log_density, **kwargs):
         """Apply forward transformation with fixed and additional kwargs.

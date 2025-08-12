@@ -1,9 +1,7 @@
-r"""Bijections and normalizing flows with JAX, with focus on physics.
+r"""Normalizing flows with JAX/NNX, specializing in physics applications.
 
-This is a library for normalizing flows built on JAX and Flax NNX,
-with some specialized tools for lattice field theory. The library
-provides flexible bijection primitives, distribution interfaces, and specialized
-neural network components for building probabilistic models.
+Provides modular bijection primitives, flexible distributions, and tools for
+lattice field theory including matrix Lie group operations and continuous flows.
 
 Example:
     >>> # Create a simple normalizing flow

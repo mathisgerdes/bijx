@@ -6,26 +6,26 @@
 
 # Bijections & normalizing flows with JAX/NNX
 
-This library provides flexible tools for building normalizing flows and conducting research, with a focus on applications in physics. It is built to offer powerful, reusable building blocks rather than a simplified interface for common use cases.
+This library provides flexible tools for building normalizing flows and bijections with tractable change of densities, focusing on research and applications in physics. It aims to provide reusable building blocks rather than a simplified interface for common use cases.
 
 The library is built around two fundamental mathematical objects:
 
 - **Bijections**: Invertible transformations that track their effect on probability densities.
 - **Distributions**: Probability distributions with methods for sampling and density evaluation.
 
-## Distinct Features
+## Key Features
 
-Besides specific design choices and approaches taken that differ from other libraries, it contains and caters to applications in physics especially lattice field theory. As such, it includes:
+Core design goals:
+- **Modular Building Blocks**: Composable components rather than monolithic frameworks
+- **Research-Focused**: Prioritizes flexibility and expressiveness over convenience
+- **Flax NNX Integration**: Modern state management for neural network components
 
-- **Continuous Normalizing Flows**: CNFs are a core architectural primitive. The library provides flexible wrappers (`ContFlowDiffrax`, `ContFlowRK4`) to turn any custom, differentiable vector field into a bijection, easing prototyping of novel flow architectures.
-
-- **Differentiable Lie Group Operations**: The `bijx.lie` module provides tools for automatic differentiation on Lie group manifolds (e.g., SU(N)) e.g. for applications in gauge theory.
-
-- **Structure-Preserving ODE Solvers**: To build robust continuous flows on manifolds, `bijx` includes a differentiable implementation of Crouch-Grossmann integrators (`bijx.cg`) on matrix Lie groups. These specialized ODE solvers are designed to preserve the geometric structure of the manifold, keeping solutions on the group.
-
-- **Symmetry-Preserving Architectures**: The library provides examples of bijections that are designed to respect the symmetries of the underlying problem. The `ConvCNF` bijection, for instance, uses symmetric convolutions to build a flow that is equivariant to the symmetries of a lattice.
-
-- **Fourier-Space Operations**: The `bijx.fourier` module provides tools for performing operations in Fourier space, e.g. for applications in lattice field theory, including decomposition into an independent set of real degrees of freedom.
+Physics & advanced methods:
+- **Continuous Normalizing Flows**: CNFs as core primitive with flexible ODE solver backends
+- **Matrix Lie Group Operations**: Automatic differentiation on matrix groups
+- **Structure-Preserving Integration**: Crouch-Grossmann solvers for ODEs on matrix groups
+- **Symmetry-Aware Architectures**: Equivariant layers and transformations (e.g., lattice-symmetric CNFs)
+- **Fourier-Space Operations**: Tools for momentum space transformations and complex field decomposition
 
 ## Quickstart
 
@@ -73,10 +73,10 @@ assert jnp.allclose(y, y2)
 pip install -e .
 ```
 
-For development and testing, install as an editable package with all dependencies:
+For development, install as an editable package with all dependencies (optionally without `docs` if documentation building is not needed):
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,docs]"
 ```
 
 To keep the codebase tidy, please install `pip install pre-commit` and run `pre-commit install` before committing changes.
@@ -87,17 +87,21 @@ To compile and open a local server for the documentation, run `make livehtml` in
 
 ## Testing
 
-Run the tests, including docstring examples:
+There are two types of tests that can be run:
+the unit tests in `tests/` and the docstring examples in the source code `src/bijx/`.
 
 ```bash
-# Run all tests including doctests
-python -m pytest tests/ src/bijx/ --doctest-modules
+# Run tests
+pytest tests/
 
-# Run only doctests
-python -m pytest src/bijx/ --doctest-modules -v
+# Run doctests
+pytest src/bijx/ --doctest-modules
 
-# Test specific module
-python -m pytest src/bijx/utils.py --doctest-modules -v
+# Run all tests
+pytest tests/ src/bijx/ --doctest-modules
+
+# Run tests in parallel using xdist
+pytest -n auto
 ```
 
 ## Module Layout

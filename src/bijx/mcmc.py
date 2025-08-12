@@ -14,6 +14,8 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
+__all__ = ["IMH", "IMHState", "IMHInfo"]
+
 
 @flax.struct.dataclass
 class IMHState:

@@ -25,7 +25,6 @@ from . import (
     fourier,
     lattice,
     lie,
-    mcmc,
     nn,
 )
 
@@ -39,6 +38,7 @@ except Exception:
 # Core modules - fully exported to top level
 from .bijections import *
 from .distributions import *
+from .mcmc import *
 from .samplers import *
 from .solvers import *
 from .utils import *

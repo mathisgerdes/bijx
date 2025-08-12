@@ -135,6 +135,20 @@ This section provides comprehensive documentation for all bijx components, organ
    odeint_rk4
 ```
 
+### MCMC
+
+These tools mimic the API of [blackjax](https://blackjax-devs.github.io/blackjax/),
+with the main difference that the samples and the proposal densities are generated simultaneously.
+
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
+
+   IMH
+   IMHState
+   IMHInfo
+```
+
 ### Utilities
 ```{eval-rst}
 .. autosummary::

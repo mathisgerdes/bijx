@@ -191,7 +191,7 @@ def sample_haar(rng, n=2, batch_shape=()):
         SU(N) matrices of shape batch_shape + (n, n).
 
     Example:
-        >>> key = jax.random.PRNGKey(42)
+        >>> key = jax.random.key(42)
         >>> su2_matrix = sample_haar(key, n=2)  # Single SU(2) matrix
         >>> su3_batch = sample_haar(key, n=3, batch_shape=(10,))  # 10 SU(3) matrices
     """
@@ -289,6 +289,304 @@ class HaarDistribution(ArrayDistribution):
             (zero after normalization).
         """
         return jnp.zeros(x.shape[: -2 - len(self.base_shape)])
+
+
+# -- Visualization and Analysis -- #
+
+
+@jax.jit
+def compute_haar_density(eigenvalue_angles):
+    r"""Compute Haar measure density for SU(N) matrices from eigenvalue angles.
+
+    For SU(N) matrices, the Haar measure density in eigenvalue coordinates
+    is given by the Vandermonde determinant:
+
+    $$
+    \rho(\theta_1, \ldots, \theta_{n-1}) =
+    \prod_{i<j} \abs{e^{i\theta_i} - e^{i\theta_j}}^2
+    $$
+
+    where $\theta_n = -\sum_{i=1}^{n-1} \theta_i$ to ensure det(U) = 1.
+
+    This density accounts for the non-trivial geometry of the group when
+    parameterized by eigenvalue angles, making it essential for proper
+    visualization and integration on SU(N).
+
+    Args:
+        eigenvalue_angles: Array of shape (..., n-1) containing the eigenvalue
+            angles $\theta_1, \ldots, \theta_{n-1}$ for SU(n) matrices.
+
+    Returns:
+        Haar density values of shape (...,) corresponding to each set of angles.
+
+    Example:
+        >>> # SU(2) case - single angle
+        >>> angles = jnp.array([0.5, 1.0, -0.3])  # Shape (3,)
+        >>> density = compute_haar_density(angles[..., None])  # Shape (3,)
+        >>>
+        >>> # SU(3) case - two angles
+        >>> angles = jnp.array([[0.1, 0.2], [0.5, -0.1]])  # Shape (2, 2)
+        >>> density = compute_haar_density(angles)  # Shape (2,)
+
+    Note:
+        - The density is normalized such that
+          $\int \rho(\theta) d\theta$ = volume of parameter space
+        - For visualization, divide by total volume to get probability density
+        - For SU(2), this reduces to $\abs{2i \sin(\theta)}^2 = 4\sin^2(\theta)$
+    """
+    eigenvalue_angles = jnp.atleast_2d(eigenvalue_angles)
+    if eigenvalue_angles.ndim == 1:
+        eigenvalue_angles = eigenvalue_angles[..., None]
+
+    # Add the constraint angle θₙ = -∑ᵢ₌₁ⁿ⁻¹ θᵢ
+    all_angles = jnp.concatenate(
+        [eigenvalue_angles, -jnp.sum(eigenvalue_angles, axis=-1, keepdims=True)],
+        axis=-1,
+    )
+
+    # Convert to complex eigenvalues e^(iθ)
+    eigenvalues = jnp.exp(1j * all_angles)
+
+    # Compute Vandermonde determinant |∏ᵢ<ⱼ (λᵢ - λⱼ)|²
+    n = eigenvalues.shape[-1]
+    density = jnp.ones(eigenvalues.shape[:-1])
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            diff = eigenvalues[..., i] - eigenvalues[..., j]
+            density *= jnp.abs(diff) ** 2
+
+    return (
+        jnp.squeeze(density) if density.ndim > 0 and density.shape[-1] == 1 else density
+    )
+
+
+def construct_su_matrix_from_eigenvalues(rng, eigenvalue_angles):
+    r"""Construct SU(N) matrices from given eigenvalue angles using random eigenvectors.
+
+    This function creates SU(N) matrices with specified eigenvalue structure by:
+    1. Generating random unitary eigenvector matrices via Haar sampling
+    2. Constructing diagonal matrices from the eigenvalue angles
+    3. Performing similarity transformation: $U = V D V^{\dagger}$
+
+    The eigenvalues are $e^{i\theta_1}, \ldots, e^{i\theta_{n-1}}, e^{-i\sum\theta_j}$
+    to ensure $\det(U) = 1$.
+
+    Args:
+        rng: JAX random key for sampling eigenvectors.
+        eigenvalue_angles: Array of shape (..., n-1) containing eigenvalue angles.
+            For SU(2): single angle $\theta$ gives eigenvalues $e^{\pm i\theta/2}$
+            For SU(3): two angles $(\theta_1,\theta_2)$ give eigenvalues
+            $e^{i\theta_1}, e^{i\theta_2}, e^{-i\theta_1-i\theta_2}$
+
+    Returns:
+        SU(N) matrices of shape (..., n, n) with the specified eigenvalue structure
+        but random eigenvector orientations (uniformly distributed via Haar measure).
+
+    Example:
+        >>> key = jax.random.key(42)
+        >>>
+        >>> # SU(2) matrices with specific eigenvalue angles
+        >>> angles = jnp.linspace(-jnp.pi, jnp.pi, 100)[..., None]  # Shape (100, 1)
+        >>> matrices = construct_su_matrix_from_eigenvalues(key, angles)  # (100, 2, 2)
+        >>>
+        >>> # SU(3) matrices on a 2D grid of angles
+        >>> theta1, theta2 = jnp.mgrid[-1:1:50j, -1:1:50j]
+        >>> angles = jnp.stack([theta1, theta2], axis=-1)  # Shape (50, 50, 2)
+        >>> matrices = construct_su_matrix_from_eigenvalues(key, angles)
+        >>> matrices.shape
+        (50, 50, 3, 3)
+
+    Note:
+        - This is essential for visualizing densities on SU(N) in eigenvalue coordinates
+        - The eigenvectors are sampled uniformly, giving the correct Haar measure
+        - Each call with the same rng and angles gives identical results
+    """
+    eigenvalue_angles = jnp.atleast_2d(eigenvalue_angles)
+    if eigenvalue_angles.ndim == 1:
+        eigenvalue_angles = eigenvalue_angles[..., None]
+
+    batch_shape = eigenvalue_angles.shape[:-1]
+    n = eigenvalue_angles.shape[-1] + 1  # SU(n) dimension
+
+    # Sample random eigenvector matrices uniformly from SU(n)
+    eigenvectors = sample_haar(rng, n, batch_shape)
+
+    # Construct eigenvalue arrays: [θ₁, ..., θₙ₋₁, -∑θᵢ]
+    constraint_angle = -jnp.sum(eigenvalue_angles, axis=-1, keepdims=True)
+    all_angles = jnp.concatenate([eigenvalue_angles, constraint_angle], axis=-1)
+    eigenvalues = jnp.exp(1j * all_angles)
+
+    # Construct diagonal matrices and perform similarity transform: U = V D V†
+    # Using broadcasting: (..., n) * (..., n, n) -> (..., n, n)
+    diag_matrices = jnp.expand_dims(eigenvalues, -1) * jnp.eye(n)
+
+    # U = V @ D @ V†
+    matrices = jnp.einsum(
+        "...ij,...jk,...lk->...il", eigenvectors, diag_matrices, eigenvectors.conj()
+    )
+
+    return matrices
+
+
+def _haar_eigenangle_normalization_constant(n: int, domain: str = "weyl_chamber"):
+    r"""Exact normalization constant for SU(n) eigenangle Haar density.
+
+    Using the Weyl/Dyson result, in eigenvalue-angle coordinates with
+    Vandermonde-squared density and the SU(n) constraint ($\sum_i \theta_i = 0$),
+    the integral over the (n-1)-torus of the raw density equals $(2\pi)^{n-1} n!$.
+    On a single Weyl chamber (fundamental cell), the integral equals $(2\pi)^{n-1}$.
+
+    domain can be "torus" or "weyl_chamber".
+    Dividing by the returned constant yields a measure that integrates to 1
+    over the chosen domain.
+    """
+    import math
+
+    base = (2 * jnp.pi) ** (n - 1)
+    if domain == "torus":
+        return base * float(math.factorial(n))
+    if domain == "weyl_chamber":
+        return base
+    raise ValueError(f"unknown domain '{domain}'. Use 'torus' or 'weyl_chamber'.")
+
+
+def create_eigenvalue_grid(n, grid_points=200):
+    r"""Create a uniform grid in eigenvalue angle coordinates for SU(N) visualization.
+
+    Generates a regular grid of eigenvalue angles suitable for visualizing
+    probability densities on SU(N) groups. The grid covers the fundamental
+    domain of eigenvalue angles with appropriate boundary handling.
+
+    For SU(N), we have N-1 independent angles with the constraint that their
+    sum determines the N-th angle to ensure det(U) = 1.
+
+    Args:
+        n: Dimension of SU(N) group (e.g., n=2 for SU(2), n=3 for SU(3)).
+        grid_points: Number of grid points along each dimension.
+
+    Returns:
+        Array of shape (grid_points,)^(n-1) + (n-1,) containing the grid of
+        eigenvalue angles. For n=2: shape (grid_points, 1). For n=3: shape
+        (grid_points, grid_points, 2).
+
+    Example:
+        >>> # SU(2) case: single angle from -π to π
+        >>> angles = create_eigenvalue_grid(n=2, grid_points=100)
+        >>> angles.shape
+        (100, 1)
+        >>> # SU(3) case: two angles, each from -π to π
+        >>> angles = create_eigenvalue_grid(n=3, grid_points=50)
+        >>> angles.shape
+        (50, 50, 2)
+        >>> # Use with other functions
+        >>> haar_density = compute_haar_density(angles)
+        >>> matrices = construct_su_matrix_from_eigenvalues(key, angles)
+
+    Note:
+        - Grid extends from -π + ε to π + ε to avoid boundary singularities
+        - Volume element for integration: (2π/grid_points)^(n-1)
+        - For n ≥ 4, visualization becomes impractical due to dimensionality
+    """
+    if n < 2:
+        raise ValueError(f"SU(N) requires n >= 2, got n={n}")
+    # Midpoint grid over a 2π-periodic interval to avoid endpoints while
+    # preserving exact total length 2π for accurate quadrature.
+    delta = 2 * jnp.pi / grid_points
+    midpoints = -jnp.pi + (jnp.arange(grid_points) + 0.5) * delta
+    if n == 2:
+        return midpoints[..., None]
+    else:
+        # SU(N) with N > 2: (N-1) angles, each on the same midpoint grid
+        grids = jnp.meshgrid(*[midpoints] * (n - 1), indexing="ij")
+        angles = jnp.stack(grids, axis=-1)
+
+        return angles
+
+
+def evaluate_density_on_eigenvalue_grid(
+    density_fn,
+    n,
+    grid_points=200,
+    rng=None,
+    normalize=True,
+    normalization_domain: str = "weyl_chamber",
+):
+    """Evaluate a density function on SU(N) using eigenvalue angle coordinates.
+
+    This function evaluates any scalar function on SU(N) matrices by:
+        1. Creating a grid in eigenvalue angle space
+        2. Constructing SU(N) matrices from these angles
+        3. Evaluating the density function on these matrices
+        4. Applying the correct Haar measure for integration
+
+    This is essential for visualizing and analyzing probability densities
+    that arise in physics applications like lattice gauge theory.
+
+    Args:
+        density_fn: Function that takes SU(N) matrices (..., n, n) and returns
+            log-densities or densities of shape (...,).
+        n: Dimension of SU(N) group.
+        grid_points: Number of grid points along each eigenvalue dimension.
+        rng: Random key for constructing matrices. If None, uses key 0.
+        normalize: Whether to normalize the density to integrate to 1.
+        normalization_domain: Domain of integration. Can be "torus" or "weyl_chamber".
+            Only affects normalization.
+
+    Returns:
+        tuple: (angles, density_values, haar_weights) where:
+            - angles: Eigenvalue angle grid of shape (grid_points^(n-1), n-1)
+            - density_values: Function values at each grid point
+            - haar_weights: Haar measure weights for proper integration
+
+    Example:
+        >>> def target_density(U):
+        ...     # Example: density proportional to Re[tr(U²)]
+        ...     return jnp.real(jnp.trace(U @ U, axis1=-2, axis2=-1))
+        >>>
+        >>> key = jax.random.key(42)
+        >>> angles, density, weights = evaluate_density_on_eigenvalue_grid(
+        ...     target_density, n=2, grid_points=100, rng=key
+        ... )
+        >>>
+        >>> # For plotting SU(2) density
+        >>> import matplotlib.pyplot as plt
+        >>> _ = plt.plot(angles.squeeze(), density)
+        >>> _ = plt.xlabel('Eigenvalue angle')
+        >>> _ = plt.ylabel('Density')
+        >>> plt.close()
+
+    Note:
+        - Returned arrays are flattened for easy iteration/plotting
+        - For n=2: angles shape (grid_points, 1), others shape (grid_points,)
+        - For n=3: angles shape (grid_points², 2), others shape (grid_points²,)
+        - Volume element for integration: (2π/grid_points)^(n-1) * haar_weights
+    """
+    if rng is None:
+        rng = jax.random.key(0)
+
+    # Create eigenvalue angle grid
+    angles = create_eigenvalue_grid(n, grid_points)
+
+    # Flatten for batch processing
+    angles_flat = angles.reshape(-1, angles.shape[-1])
+
+    # Construct SU(N) matrices from eigenvalues
+    matrices = construct_su_matrix_from_eigenvalues(rng, angles_flat)
+
+    # Evaluate the density function
+    density_values = density_fn(matrices)
+
+    # Compute Haar measure weights
+    haar_weights = compute_haar_density(angles_flat)
+
+    # Handle normalization
+    if normalize:
+        # Divide by exact SU(n) eigenangle normalization constant
+        norm = _haar_eigenangle_normalization_constant(n, normalization_domain)
+        haar_weights = haar_weights / norm
+
+    return angles_flat, density_values, haar_weights
 
 
 # -- Gradients -- #

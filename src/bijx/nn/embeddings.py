@@ -12,6 +12,7 @@ import typing as tp
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
+from jax_autovmap import autovmap
 
 from ..utils import Const
 
@@ -113,6 +114,7 @@ class KernelGauss(Embedding):
         else:
             self.width_factor = Const(width_factor)
 
+    @autovmap(val=0)
     def __call__(self, val):
         """Apply Gaussian basis function embedding to input values.
 
@@ -160,6 +162,7 @@ class KernelLin(Embedding):
         super().__init__(feature_count, rngs=rngs)
         self.val_range = val_range
 
+    @autovmap(val=0)
     def __call__(self, val):
         """Apply linear interpolation embedding to input values.
 
@@ -209,6 +212,7 @@ class KernelFourier(Embedding):
         super().__init__(feature_count, rngs=rngs)
         self.val_range = val_range
 
+    @autovmap(val=0)
     def __call__(self, val):
         """Apply Fourier series embedding to input values.
 
@@ -261,8 +265,13 @@ class KernelReduced(Embedding):
         super().__init__(feature_count, rngs=rngs)
         self.kernel = kernel
 
+        chosen_param_dtype = jnp.result_type(0.0)
         self.superposition = nnx.Param(
-            init(rngs.params(), (feature_count, self.kernel.feature_count), jnp.float32)
+            init(
+                rngs.params(),
+                (feature_count, self.kernel.feature_count),
+                chosen_param_dtype,
+            )
         )
 
     def __call__(self, val):
@@ -309,6 +318,7 @@ class PositionalEmbedding(Embedding):
         self.max_positions = max_positions
         self.append_input = append_input
 
+    @autovmap(val=0)
     def __call__(self, val):
         """Apply sinusoidal positional embedding to input values.
 

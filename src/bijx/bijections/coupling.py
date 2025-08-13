@@ -297,7 +297,7 @@ class BinaryMask(Bijection):
         if jnp.ndim(array) < len(self.event_shape):
             # numpy automatically tries to vectorize multiplication;
             # this does not happen with jax arrays
-            raise ValueError("rank too low for multiplying by mask (try mask * array)")
+            raise ValueError("rank too low for mask multiplication (try mask * array)")
         return self.__mul__(array)
 
 

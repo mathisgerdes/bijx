@@ -41,7 +41,8 @@ dev = [
     "pre-commit>=3.0.0",
     "pytest>=7.0",
     "pytest-xdist>=3.0.0",
-    "flowjax>=0.3.0"
+    "flowjax>=0.3.0",
+    "hypothesis[numpy]>=6.90"
 ]
 docs = [
     "sphinx",

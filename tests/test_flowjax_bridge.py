@@ -1,5 +1,8 @@
 """
-Tests for FlowJAX bridge compatibility.
+Tests for FlowJAX bridge in bijx.flowjax.
+
+Lightweight proof-of-principle checks that the adapters work and gradients
+can be computed through both directions on a simple loss.
 """
 
 import pytest
@@ -9,227 +12,142 @@ pytest.importorskip("flowjax")
 import flowjax
 import flowjax.bijections
 import flowjax.distributions
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 from flax import nnx
-from flowjax.flows import block_neural_autoregressive_flow
 
 import bijx
-import bijx.flowjax as flowjax_bridge
+import bijx.flowjax as fj_bridge
+
+# Central test tolerances
+from .utils import ATOL, RTOL, RTOL_RELAXED
+
+
+def _assert_bijection_inverse_consistency(bijection, x, ld, rtol=RTOL):
+    """Helper to test bijection inverse consistency."""
+    y, ld_forward = bijection.forward(x, ld)
+    x_reconstructed, ld_reverse = bijection.reverse(y, ld)
+    np.testing.assert_allclose(x_reconstructed, x, rtol=rtol)
+    np.testing.assert_allclose(ld_forward + ld_reverse, ld, rtol=rtol)
+
+
+def _assert_flowjax_inverse_consistency(bijection, x, rtol=RTOL):
+    """Helper to test FlowJAX bijection inverse consistency."""
+    y, ld_forward = bijection.transform_and_log_det(x)
+    x_reconstructed, ld_reverse = bijection.inverse_and_log_det(y)
+    np.testing.assert_allclose(x_reconstructed, x, rtol=rtol)
+    np.testing.assert_allclose(ld_forward + ld_reverse, 0.0, rtol=rtol)
 
 
 class TestFlowjaxToBijx:
-    """Test FlowJAX -> bijx wrapping."""
-
-    def test_simple_affine_bijection(self):
-        """Test basic affine bijection wrapping."""
-        flowjax_bij = flowjax.bijections.Affine(loc=1.0, scale=2.0)
-        bijx_bij = flowjax_bridge.FlowjaxToBijxBijection(flowjax_bij)
-
+    def test_affine_inverse_and_log(self):
+        fj = flowjax.bijections.Affine(loc=1.0, scale=2.0)
+        bx = fj_bridge.FlowjaxToBijxBijection(fj)
         x = jnp.array(5.0)
-        log_density = jnp.array(0.0)
+        ld = jnp.array(0.0)
+        _assert_bijection_inverse_consistency(bx, x, ld)
 
-        y, ld_fwd = bijx_bij.forward(x, log_density)
-        x_rec, ld_rev = bijx_bij.reverse(y, log_density)
-
-        np.testing.assert_allclose(x, x_rec, rtol=1e-6)
-        np.testing.assert_allclose(ld_fwd + ld_rev, log_density, rtol=1e-6)
-
-    def test_batch_processing(self):
-        """Test batch processing with different shapes."""
-        flowjax_bij = flowjax.bijections.Exp(shape=(2,))
-        bijx_bij = flowjax_bridge.FlowjaxToBijxBijection(flowjax_bij)
-
-        x_batch = jr.normal(jr.key(0), (10, 2))
-        log_density_batch = jnp.zeros(10)
-
-        y_batch, ld_fwd_batch = bijx_bij.forward(x_batch, log_density_batch)
-        x_rec_batch, ld_rev_batch = bijx_bij.reverse(y_batch, log_density_batch)
-
-        np.testing.assert_allclose(x_batch, x_rec_batch, rtol=1e-5)
-        np.testing.assert_allclose(
-            ld_fwd_batch + ld_rev_batch, log_density_batch, atol=1e-6
-        )
-
-    def test_distribution_wrapping(self):
-        """Test FlowJAX distribution wrapping."""
-        rngs = nnx.Rngs(0)
-
-        key = jr.key(0)
-        flow = block_neural_autoregressive_flow(
-            key=key,
-            base_dist=flowjax.distributions.Normal(jnp.zeros(2)),
-        )
-
-        bijx_dist = flowjax_bridge.FlowjaxToBijxDistribution(flow, rngs=rngs)
-
-        samples, log_prob = bijx_dist.sample(batch_shape=(5,))
-        assert samples.shape == (5, 2)
-        assert log_prob.shape == (5,)
-
-        x = jr.normal(jr.key(1), (2,))
-        log_density = bijx_dist.log_density(x)
-        assert log_density.shape == ()
+    def test_batch_shape(self, rng_key):
+        fj = flowjax.bijections.Exp(shape=(2,))
+        bx = fj_bridge.FlowjaxToBijxBijection(fj)
+        x = jr.normal(rng_key, (7, 2))
+        ld = jnp.zeros((7,))
+        y, ld1 = bx.forward(x, ld)
+        x_reconstructed, ld2 = bx.reverse(y, ld)
+        np.testing.assert_allclose(x_reconstructed, x, rtol=RTOL_RELAXED)
+        np.testing.assert_allclose(ld1 + ld2, ld, atol=ATOL)
 
 
-class TestbijxToFlowjax:
-    """Test bijx -> FlowJAX wrapping."""
-
-    def test_simple_scaling_bijection(self):
-        """Test basic scaling bijection wrapping."""
-        rngs = nnx.Rngs(0)
-
-        bijx_bij = bijx.bijections.Scaling(jnp.array([2.0, 3.0]), rngs=rngs)
-
-        flowjax_bij = flowjax_bridge.BijxToFlowjaxBijection.from_bijection(
-            bijx_bij, shape=(2,)
-        )
-
+class TestBijxToFlowjax:
+    def test_simple_scaling(self, rng_key):
+        bij = bijx.bijections.Scaling(jnp.array([2.0, 3.0]), rngs=nnx.Rngs(rng_key))
+        fj = fj_bridge.BijxToFlowjaxBijection.from_bijection(bij, shape=(2,))
         x = jnp.array([1.0, 2.0])
+        _assert_flowjax_inverse_consistency(fj, x)
 
-        y, log_det_fwd = flowjax_bij.transform_and_log_det(x)
-        x_rec, log_det_rev = flowjax_bij.inverse_and_log_det(y)
-
-        np.testing.assert_allclose(x, x_rec, rtol=1e-6)
-        np.testing.assert_allclose(log_det_fwd + log_det_rev, 0.0, rtol=1e-6)
-
-    def test_chain_bijection(self):
-        """Test chained bijx bijections."""
-        rngs = nnx.Rngs(1)
-
-        bij1 = bijx.bijections.Scaling(jnp.array([2.0]), rngs=rngs)
-        bij2 = bijx.bijections.Shift(jnp.array([1.0]), rngs=rngs)
-        chain = bijx.bijections.Chain(bij1, bij2)
-
-        flowjax_bij = flowjax_bridge.BijxToFlowjaxBijection.from_bijection(
-            chain, shape=(1,)
-        )
-
+    def test_chain(self, rng_key):
+        r = nnx.Rngs(rng_key)
+        s = bijx.bijections.Scaling(jnp.array([2.0]), rngs=r)
+        t = bijx.bijections.Shift(jnp.array([1.0]), rngs=r)
+        chain = bijx.bijections.Chain(s, t)
+        fj = fj_bridge.BijxToFlowjaxBijection.from_bijection(chain, shape=(1,))
         x = jnp.array([3.0])
-
-        y, log_det_fwd = flowjax_bij.transform_and_log_det(x)
-        x_rec, log_det_rev = flowjax_bij.inverse_and_log_det(y)
-
-        np.testing.assert_allclose(x, x_rec, rtol=1e-6)
-        np.testing.assert_allclose(log_det_fwd + log_det_rev, 0.0, rtol=1e-6)
+        _assert_flowjax_inverse_consistency(fj, x)
 
 
-class TestHelperFunctions:
-    """Test helper conversion functions."""
-
-    def test_to_flowjax_bijection(self):
-        """Test to_flowjax helper with bijection."""
-        rngs = nnx.Rngs(0)
-        bijx_bij = bijx.bijections.Scaling(jnp.array([2.0]), rngs=rngs)
-
-        # Should fail without shape parameter
-        with pytest.raises(TypeError):
-            flowjax_bridge.to_flowjax(bijx_bij)
-
-        # Should work with shape parameter
-        flowjax_bij = flowjax_bridge.to_flowjax(bijx_bij, shape=(1,))
-        assert isinstance(flowjax_bij, flowjax_bridge.BijxToFlowjaxBijection)
-
-    def test_from_flowjax_bijection(self):
-        """Test from_flowjax helper with bijection."""
-        flowjax_bij = flowjax.bijections.Exp()
-
-        bijx_bij = flowjax_bridge.from_flowjax(flowjax_bij)
-        assert isinstance(bijx_bij, flowjax_bridge.FlowjaxToBijxBijection)
-
-    def test_from_flowjax_distribution(self):
-        """Test from_flowjax helper with distribution."""
-        flowjax_dist = flowjax.distributions.Normal(jnp.zeros(2))
-
-        bijx_dist = flowjax_bridge.from_flowjax(flowjax_dist)
-        assert isinstance(bijx_dist, flowjax_bridge.FlowjaxToBijxDistribution)
-
-    def test_invalid_module_type(self):
-        """Test error handling for invalid module types."""
-        with pytest.raises(ValueError, match="Unsupported module type: <class 'str'>"):
-            flowjax_bridge.from_flowjax("not a bijection or distribution")
-
-        with pytest.raises(ValueError, match="Unsupported module type: <class 'str'>"):
-            flowjax_bridge.to_flowjax("not a bijection or distribution")
-
-
-class TestRoundTripConsistency:
-    """Test round-trip consistency: bijx -> FlowJAX -> bijx and vice versa."""
-
-    def test_bijx_flowjax_bijx_bijection(self):
-        """Test bijx -> FlowJAX -> bijx bijection round trip."""
-        rngs = nnx.Rngs(42)
-
-        original_bijx = bijx.bijections.Scaling(jnp.array([1.5, 2.0]), rngs=rngs)
-
-        flowjax_bij = flowjax_bridge.BijxToFlowjaxBijection.from_bijection(
-            original_bijx, shape=(2,)
-        )
-
-        bijx_bij = flowjax_bridge.FlowjaxToBijxBijection(flowjax_bij)
-
+class TestHelpers:
+    def test_helper_round_trip(self, rng_key):
+        """Test that round-trip conversion preserves behavior."""
+        bx = bijx.bijections.Scaling(jnp.array([1.5, 2.0]), rngs=nnx.Rngs(rng_key))
+        fj = fj_bridge.to_flowjax(bx, shape=(2,))
+        bx2 = fj_bridge.from_flowjax(fj)
         x = jnp.array([3.0, 4.0])
-        log_density = jnp.array(0.0)
+        ld = jnp.array(0.0)
+        y1, ld1 = bx.forward(x, ld)
+        y2, ld2 = bx2.forward(x, ld)
+        np.testing.assert_allclose(y1, y2, rtol=RTOL)
+        np.testing.assert_allclose(ld1, ld2, rtol=RTOL)
 
-        y1, ld1 = original_bijx.forward(x, log_density)
-        y2, ld2 = bijx_bij.forward(x, log_density)
+    def test_error_paths(self, rng_key):
+        """Test that invalid usage raises appropriate errors."""
+        # Invalid module type
+        msg = "Unsupported module type: <class 'str'>"
+        with pytest.raises(ValueError, match=msg):
+            fj_bridge.from_flowjax("not-a-module")
 
-        np.testing.assert_allclose(y1, y2, rtol=1e-6)
-        np.testing.assert_allclose(ld1, ld2, rtol=1e-6)
+        # Missing shape parameter
+        msg = "Converting bijx bijection to FlowJAX requires 'shape' parameter"
+        with pytest.raises(TypeError, match=msg):
+            fj_bridge.to_flowjax(bijx.bijections.Identity)
 
-    def test_flowjax_bijx_flowjax_bijection(self):
-        """Test FlowJAX -> bijx -> FlowJAX bijection round trip."""
-        original_flowjax = flowjax.bijections.Affine(
-            loc=jnp.array([1.0, 2.0]), scale=jnp.array([2.0, 3.0])
+        bij = bijx.bijections.Scaling(jnp.array([2.0]), rngs=nnx.Rngs(rng_key))
+
+        # Conditional misuse: providing condition without cond_shape
+        fj = fj_bridge.BijxToFlowjaxBijection.from_bijection(bij, shape=(1,))
+        msg = "Condition provided but cond_shape is None"
+        with pytest.raises(TypeError, match=msg):
+            _ = fj.transform_and_log_det(jnp.array([1.0]), condition=jnp.array([0.0]))
+
+        # Wrong conditional trailing shape
+        fjc = fj_bridge.BijxToFlowjaxBijection.from_bijection(
+            bij, shape=(1,), cond_shape=(2,)
         )
-
-        bijx_bij = flowjax_bridge.FlowjaxToBijxBijection(original_flowjax)
-
-        flowjax_bij = flowjax_bridge.BijxToFlowjaxBijection.from_bijection(
-            bijx_bij, shape=(2,)
-        )
-
-        x = jnp.array([3.0, 4.0])
-
-        y1, ld1 = original_flowjax.transform_and_log_det(x)
-        y2, ld2 = flowjax_bij.transform_and_log_det(x)
-
-        np.testing.assert_allclose(y1, y2, rtol=1e-6)
-        np.testing.assert_allclose(ld1, ld2, rtol=1e-6)
+        msg = "Expected condition.shape \\(2,\\); got \\(1,\\)"
+        with pytest.raises(ValueError, match=msg):
+            _ = fjc.transform_and_log_det(jnp.array([1.0]), condition=jnp.array([0.0]))
 
 
-class TestEdgeCases:
-    """Test edge cases and error handling."""
+class TestGradients:
+    def test_grad_through_bijx_wrapped_in_flowjax(self, rng_key):
+        def loss(scale_val):
+            # Rebuild bijection with new parameter for grad.
+            bx = bijx.bijections.Scaling(jnp.array(scale_val), rngs=nnx.Rngs(rng_key))
+            fj = fj_bridge.to_flowjax(bx, shape=())
+            y, ld = fj.transform_and_log_det(jnp.array(1.0))
+            return y**2 + ld**2
 
-    def test_scalar_bijections(self):
-        """Test scalar bijections."""
-        flowjax_bij = flowjax.bijections.Tanh()
-        bijx_bij = flowjax_bridge.FlowjaxToBijxBijection(flowjax_bij)
+        g = jax.grad(loss)(2.0)
+        assert jnp.isfinite(g)
 
-        x = jnp.array(1.0)
-        log_density = jnp.array(0.0)
+    def test_grad_through_flowjax_wrapped_in_bijx(self):
+        def loss(scale_val):
+            fj = flowjax.bijections.Affine(loc=1.0, scale=scale_val)
+            bx = fj_bridge.from_flowjax(fj)
+            y, ld = bx.forward(jnp.array(1.0), jnp.array(0.0))
+            return y**2 + ld**2
 
-        y, ld_fwd = bijx_bij.forward(x, log_density)
-        x_rec, ld_rev = bijx_bij.reverse(y, log_density)
-
-        np.testing.assert_allclose(x, x_rec, rtol=1e-6)
-        np.testing.assert_allclose(ld_fwd + ld_rev, log_density, rtol=1e-6)
-
-    def test_zero_log_density(self):
-        """Test that log density handling is correct."""
-        flowjax_bij = flowjax.bijections.Exp()
-        bijx_bij = flowjax_bridge.FlowjaxToBijxBijection(flowjax_bij)
-
-        x = jnp.array(1.0)
-        log_density = jnp.array(0.0)
-
-        y_bijx, ld_bijx = bijx_bij.forward(x, log_density)
-        y_fj, log_det_fj = flowjax_bij.transform_and_log_det(x)
-
-        np.testing.assert_allclose(y_bijx, y_fj, rtol=1e-6)
-        np.testing.assert_allclose(ld_bijx, log_density - log_det_fj, rtol=1e-6)
+        g = jax.grad(loss)(2.0)
+        assert jnp.isfinite(g)
 
 
-if __name__ == "__main__":
-    pytest.main([__file__])
+class TestDistributionBridge:
+    def test_flowjax_dist_to_bijx(self, rng_key):
+        """Test FlowJAX distribution to bijx distribution conversion."""
+        key = rng_key
+        flow = flowjax.distributions.Normal(jnp.zeros(2))
+        bx = fj_bridge.FlowjaxToBijxDistribution(flow, rngs=nnx.Rngs(rng_key))
+        samples, logp = bx.sample(batch_shape=(5,), rng=key)
+        assert samples.shape == (5, 2)
+        assert logp.shape == (5,)

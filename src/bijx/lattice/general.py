@@ -1,3 +1,9 @@
+"""General lattice field theory utilities and operations.
+
+This module provides basic lattice manipulation functions that are common
+across different field theories, such as shifting fields along lattice directions.
+"""
+
 import jax.numpy as jnp
 
 

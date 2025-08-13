@@ -517,7 +517,7 @@ class ConvSym(nnx.Module):
         use_bias: bool = True,
         mask: jax.Array | None = None,
         dtype: ftp.Dtype | None = None,
-        param_dtype: ftp.Dtype = jnp.float32,
+        param_dtype: ftp.Dtype | None = None,
         precision: ftp.PrecisionLike = None,
         kernel_init: ftp.Initializer = nnx.nn.linear.default_kernel_init,
         bias_init: ftp.Initializer = nnx.nn.linear.default_bias_init,
@@ -543,14 +543,19 @@ class ConvSym(nnx.Module):
             self.orbits = Const(None)
             w_shape = (np.prod(kernel_shape[:-2]), kernel_shape[-2], kernel_shape[-1])
 
+        # Choose parameter dtype lazily to respect global precision settings
+        chosen_param_dtype = param_dtype or jnp.result_type(0.0)
+
         kernel_key = rngs.params()
-        self.kernel_params = nnx.Param(kernel_init(kernel_key, w_shape, param_dtype))
+        self.kernel_params = nnx.Param(
+            kernel_init(kernel_key, w_shape, chosen_param_dtype)
+        )
 
         self.bias: nnx.Param[jax.Array] | None
         if use_bias:
             bias_shape = (out_features,)
             bias_key = rngs.params()
-            self.bias = nnx.Param(bias_init(bias_key, bias_shape, param_dtype))
+            self.bias = nnx.Param(bias_init(bias_key, bias_shape, chosen_param_dtype))
         else:
             self.bias = nnx.Param(None)
 
@@ -565,7 +570,7 @@ class ConvSym(nnx.Module):
         self.use_bias = use_bias
         self.mask = mask
         self.dtype = dtype
-        self.param_dtype = param_dtype
+        self.param_dtype = chosen_param_dtype
         self.precision = precision
         self.kernel_init = kernel_init
         self.bias_init = bias_init
@@ -574,6 +579,7 @@ class ConvSym(nnx.Module):
 
     @property
     def kernel(self) -> nnx.Param[jax.Array]:
+        """Construct full kernel from orbit-shared parameters."""
         if self.orbits is not None:
             kernel = self.kernel_params[self.orbits.value]
         else:

@@ -181,6 +181,24 @@ class BijxToFlowjaxBijection(flowjax.bijections.AbstractBijection):
         if condition is not None:
             kwargs[self.cond_name] = condition
 
+        # Validate conditional usage
+        if condition is not None and self.cond_shape is None:
+            raise TypeError(
+                "Condition provided but cond_shape is None. "
+                "Specify cond_shape when constructing BijxToFlowjaxBijection."
+            )
+        if condition is not None and self.cond_shape is not None:
+            expected = tuple(self.cond_shape)
+            if len(expected) > 0:
+                actual = tuple(jnp.shape(condition)[-len(expected) :])
+            else:
+                actual = ()
+            if actual != expected:
+                raise ValueError(
+                    f"condition trailing shape {actual} does not "
+                    f"match cond_shape {expected}"
+                )
+
         y, neg_log_det = self.bijx_bijection.forward(x, jnp.zeros(()), **kwargs)
         return y, -neg_log_det
 
@@ -198,6 +216,24 @@ class BijxToFlowjaxBijection(flowjax.bijections.AbstractBijection):
         kwargs = {}
         if condition is not None:
             kwargs[self.cond_name] = condition
+
+        # Validate conditional usage
+        if condition is not None and self.cond_shape is None:
+            raise TypeError(
+                "Condition provided but cond_shape is None. "
+                "Specify cond_shape when constructing BijxToFlowjaxBijection."
+            )
+        if condition is not None and self.cond_shape is not None:
+            expected = tuple(self.cond_shape)
+            if len(expected) > 0:
+                actual = tuple(jnp.shape(condition)[-len(expected) :])
+            else:
+                actual = ()
+            if actual != expected:
+                raise ValueError(
+                    f"condition trailing shape {actual} "
+                    f"does not match cond_shape {expected}"
+                )
 
         x, neg_log_det = self.bijx_bijection.reverse(y, jnp.zeros(()), **kwargs)
         return x, -neg_log_det

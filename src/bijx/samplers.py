@@ -177,10 +177,10 @@ class BufferedSampler(Distribution):
             self.dist,
         )
 
-        sample = jax.tree.map(lambda x: x[self.buffer_index.value], self.buffer.value)
+        draw = jax.tree.map(lambda x: x[self.buffer_index.value], self.buffer.value)
         self.buffer_index.value += 1
 
-        return sample
+        return draw  # (x, log_density)
 
     def log_density(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
         """Evaluate log density using the underlying distribution.

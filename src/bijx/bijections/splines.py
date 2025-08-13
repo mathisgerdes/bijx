@@ -8,6 +8,7 @@ Reference:
     Durkan et al. "Neural Spline Flows" (arXiv:1906.04032)
 """
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
@@ -77,6 +78,10 @@ def rational_quadratic_spline(
         >>> y, log_det = rational_quadratic_spline(x, widths, heights, slopes)
     """
     num_bins = bin_widths.shape[-1]
+    dtype = jnp.result_type(inputs)
+    # Adaptive tolerance based on machine epsilon, scaled during use
+    eps = jnp.asarray(jnp.finfo(dtype).eps, dtype=dtype)
+    tiny = jnp.asarray(10.0, dtype=dtype) * eps
 
     # Normalize widths and heights using softmax
     bin_widths = nnx.softmax(bin_widths, axis=-1)
@@ -121,6 +126,8 @@ def rational_quadratic_spline(
         bin_idx = jnp.searchsorted(knot_y, inputs_clipped, side="right") - 1
     else:
         bin_idx = jnp.searchsorted(knot_x, inputs_clipped, side="right") - 1
+    # Guard against rightmost insertion at exactly 1.0
+    bin_idx = jnp.clip(bin_idx, 0, num_bins - 1)
 
     # Get bin boundaries and slopes for each input
     left_knot_x = knot_x[bin_idx]
@@ -131,22 +138,34 @@ def rational_quadratic_spline(
     right_slope = slopes[bin_idx + 1]
 
     # Compute bin slope (average rise over run)
-    bin_slope = bin_height / bin_width
+    # Use a safety guard on width
+    width_safe = jnp.maximum(bin_width, tiny)
+    bin_slope = bin_height / width_safe
 
     if inverse:
         # Solve quadratic equation for inverse transform
         y_offset = inputs_clipped - left_knot_y
 
-        quad_a = y_offset * (left_slope + right_slope - 2 * bin_slope) + bin_height * (
-            bin_slope - left_slope
+        # fmt: off
+        quad_a = (
+            y_offset * (left_slope + right_slope - 2 * bin_slope)
+            + bin_height * (bin_slope - left_slope)
         )
-        quad_b = bin_height * left_slope - y_offset * (
-            left_slope + right_slope - 2 * bin_slope
+        # fmt: off
+        quad_b = (
+            bin_height * left_slope
+            - y_offset * (left_slope + right_slope - 2 * bin_slope)
         )
         quad_c = -bin_slope * y_offset
 
         discriminant = quad_b**2 - 4 * quad_a * quad_c
-        normalized_pos = (2 * quad_c) / (-quad_b - jnp.sqrt(discriminant))
+        # Discriminant can become slightly negative from roundoff; clamp at 0
+        discriminant = jnp.maximum(discriminant, jnp.asarray(0.0, dtype))
+        denom_safe = -quad_b - jnp.sqrt(discriminant)
+        # Stabilize division by adding a relative tiny term
+        denom_safe = denom_safe + tiny * (1.0 + jnp.abs(quad_b))
+        normalized_pos = (2 * quad_c) / denom_safe
+        normalized_pos = jnp.clip(normalized_pos, 0.0, 1.0)
         outputs_spline = normalized_pos * bin_width + left_knot_x
 
         # Compute log determinant for the forward transform dy/dx
@@ -154,6 +173,11 @@ def rational_quadratic_spline(
         denominator = bin_slope + (
             (left_slope + right_slope - 2 * bin_slope) * pos_complement
         )
+        # Scale lower bound by local magnitudes to preserve units
+        denom_lb = tiny * (
+            1.0 + jnp.abs(bin_slope) + jnp.abs(left_slope) + jnp.abs(right_slope)
+        )
+        denominator = jnp.maximum(denominator, denom_lb)
         numerator = bin_slope**2 * (
             right_slope * normalized_pos**2
             + 2 * bin_slope * pos_complement
@@ -164,15 +188,26 @@ def rational_quadratic_spline(
         # For the inverse transform, we need -log_det(dy/dx)
         log_det = -log_det_spline
 
-    else:  # Forward transform
-        normalized_pos = (inputs_clipped - left_knot_x) / bin_width
+    else:
+        # Forward transform
+        normalized_pos = (inputs_clipped - left_knot_x) / (width_safe)
+        normalized_pos = jnp.clip(normalized_pos, 0.0, 1.0)
 
-        numerator_term = bin_slope * normalized_pos**2 + left_slope * normalized_pos * (
-            1 - normalized_pos
+        # fmt: off
+        numerator_term = (
+            bin_slope * normalized_pos**2
+            + left_slope * normalized_pos * (1 - normalized_pos)
         )
-        denominator_term = bin_slope + (
-            right_slope + left_slope - 2 * bin_slope
-        ) * normalized_pos * (1 - normalized_pos)
+        # fmt: off
+        denominator_term = (
+            bin_slope
+            + (right_slope + left_slope - 2 * bin_slope)
+            * normalized_pos * (1 - normalized_pos)
+        )
+        denom_lb = tiny * (
+            1.0 + jnp.abs(bin_slope) + jnp.abs(left_slope) + jnp.abs(right_slope)
+        )
+        denominator_term = jnp.maximum(denominator_term, denom_lb)
         outputs_spline = left_knot_y + bin_height * numerator_term / denominator_term
 
         derivative_numerator = bin_slope**2 * (
@@ -185,7 +220,7 @@ def rational_quadratic_spline(
     # For out-of-bounds inputs, the transform is the identity.
     # The output is the input, and the log_det is 0.
     outputs = jnp.where(in_bounds, outputs_spline, inputs)
-    final_log_det = jnp.where(in_bounds, log_det, 0.0)
+    final_log_det = jnp.where(in_bounds, log_det, jnp.asarray(0.0, dtype=outputs.dtype))
 
     return outputs, final_log_det
 
@@ -244,7 +279,7 @@ class MonotoneRQSpline(ApplyBijection):
         self.in_features = np.prod(event_shape, dtype=int)
 
         widths = widths_init(rngs.params(), (*event_shape, knots))
-        heights = heights_init(rngs.params(), (*event_shape, knots - 1))
+        heights = heights_init(rngs.params(), (*event_shape, knots))
         slopes = slopes_init(rngs.params(), (*event_shape, knots - 1))
 
         self.widths = nnx.Param(widths)
@@ -290,15 +325,42 @@ class MonotoneRQSpline(ApplyBijection):
         si = ShapeInfo(event_dim=event_dim, channel_dim=0)
         _, si = si.process_event(jnp.shape(x))
 
-        x, log_jac = rational_quadratic_spline(
-            x,
-            self.widths.value,
-            self.heights.value,
-            self.slopes.value,
-            inverse=reverse,
-            min_bin_width=self.min_bin_width,
-            min_bin_height=self.min_bin_height,
-            min_slope=self.min_slope,
+        # Flatten event dims and vectorize RQS over elements
+        # for robustness across event ranks
+        batch_shape = jnp.shape(log_density)
+        x_flat, _ = si.process_and_flatten(x)
+
+        # Move event axis to front for vmap
+        x_elem_first = jnp.moveaxis(x_flat, -1, 0)  # [event_size, *batch]
+
+        event_size = si.event_size
+        # Flatten params over event dims to align per-element
+        widths = jnp.reshape(self.widths.value, (event_size, -1))
+        heights = jnp.reshape(self.heights.value, (event_size, -1))
+        slopes = jnp.reshape(self.slopes.value, (event_size, -1))
+
+        def rqs_elem(x_elem, w, h, s):
+            y_elem, lj_elem = rational_quadratic_spline(
+                x_elem,
+                w,
+                h,
+                s,
+                inverse=reverse,
+                min_bin_width=self.min_bin_width,
+                min_bin_height=self.min_bin_height,
+                min_slope=self.min_slope,
+            )
+            return y_elem, lj_elem
+
+        y_elem_first, lj_elem_first = jax.vmap(rqs_elem, in_axes=(0, 0, 0, 0))(
+            x_elem_first, widths, heights, slopes
         )
 
-        return x, log_density - jnp.sum(log_jac, axis=si.event_axes)
+        # Restore original shape
+        y_flat = jnp.moveaxis(y_elem_first, 0, -1)
+        y = jnp.reshape(y_flat, jnp.shape(x))
+
+        log_jac = jnp.moveaxis(lj_elem_first, 0, -1)
+        log_jac = jnp.reshape(log_jac, batch_shape + si.event_shape)
+
+        return y, log_density - jnp.sum(log_jac, axis=si.event_axes)

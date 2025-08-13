@@ -35,14 +35,42 @@ Here is a minimal example of building and sampling from a simple normalizing flo
 import jax
 import jax.numpy as jnp
 import bijx
+from flax import nnx
 
 # Define simple base distributions
 prior = bijx.IndependentNormal(event_shape=(2,))
 
-# Compose bijections (here a simple shift and scaling)
+# choose a base bijection for the coupling layer
+base_bijection = bijx.ModuleReconstructor(
+    # for real NVP style, using affine linear as base bijection
+    bijx.AffineLinear(rngs=nnx.Rngs(0))
+)
+
+# build a simple coupling layer
+coupling_layer = bijx.GeneralCouplingLayer(
+    # replace with more realistic NN (active -> params)
+    embedding_net=lambda x: jnp.zeros(x.shape + (base_bijection.params_total_size,)),
+    mask=bijx.BinaryMask.from_boolean_mask(jnp.array([True, False])),
+    bijection_reconstructor=base_bijection,
+)
+
+# build a very simple continuous flow
+# note: automatic divergence is expensive in high dimensions
+cnf = bijx.ContFlowDiffrax(
+    # vf must return divergence too; AutoJacVF computes it for us
+    vf=bijx.AutoJacVF(
+        lambda t, x: -x,
+    )
+)
+
+# Compose bijections
 flow = bijx.Chain(
     bijx.Shift(jnp.array([5.0, -2.0])),
-    bijx.Scaling(jnp.array([2.0, 0.5]))
+    bijx.Scaling(jnp.array([2.0, 0.5])),
+    # add more coupling layers for expressivity
+    coupling_layer,
+    # final continuous flow
+    cnf,
 )
 
 # sample from the base distribution
@@ -59,6 +87,11 @@ y2, lp_y2 = dist.sample(batch_shape=(5,), rng=rng)
 
 # exactly the same as we used the same random key
 assert jnp.allclose(y, y2)
+
+# check bijectivity
+x_rec, lp_x_rec = flow.reverse(y, lp_y)
+assert jnp.allclose(x, x_rec, atol=1e-6)
+assert jnp.allclose(lp_x, lp_x_rec, atol=1e-6)
 ```
 
 ## Design Principles
@@ -130,7 +163,7 @@ bijx/
 │
 ├── fourier.py            # Tools for Fourier-space operations
 ├── lie.py                # General-purpose Lie group operations
-├── cg/                   # Crouch-Grossmann ODE integrators
+├── cg.py                 # Crouch-Grossmann ODE integrators
 │
 └── lattice/              # Application: Lattice Field Theory
     ├── scalar.py         # Action and observables for phi^4 theory

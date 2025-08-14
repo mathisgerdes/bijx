@@ -42,7 +42,8 @@ dev = [
     "pytest>=7.0",
     "pytest-xdist>=3.0.0",
     "flowjax>=0.3.0",
-    "hypothesis[numpy]>=6.90"
+    "hypothesis[numpy]>=6.90",
+    "matplotlib>=3.9.0",
 ]
 docs = [
     "sphinx",

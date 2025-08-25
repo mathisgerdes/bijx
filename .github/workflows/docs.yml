@@ -23,9 +23,14 @@ jobs:
     env:
       JAX_PLATFORMS: cpu
     steps:
+      - name: Checkout repository with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Needed for setuptools_scm to work properly
       - id: deployment
         uses: sphinx-notes/pages@v3
         with:
           documentation_path: ./docs/source
           pyproject_extras: docs
           publish: true
+          checkout: false  # We handle checkout ourselves above

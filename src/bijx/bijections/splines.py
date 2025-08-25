@@ -8,7 +8,6 @@ Reference:
     Durkan et al. "Neural Spline Flows" (arXiv:1906.04032)
 """
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
@@ -325,42 +324,12 @@ class MonotoneRQSpline(ApplyBijection):
         si = ShapeInfo(event_dim=event_dim, channel_dim=0)
         _, si = si.process_event(jnp.shape(x))
 
-        # Flatten event dims and vectorize RQS over elements
-        # for robustness across event ranks
-        batch_shape = jnp.shape(log_density)
-        x_flat, _ = si.process_and_flatten(x)
-
-        # Move event axis to front for vmap
-        x_elem_first = jnp.moveaxis(x_flat, -1, 0)  # [event_size, *batch]
-
-        event_size = si.event_size
-        # Flatten params over event dims to align per-element
-        widths = jnp.reshape(self.widths.value, (event_size, -1))
-        heights = jnp.reshape(self.heights.value, (event_size, -1))
-        slopes = jnp.reshape(self.slopes.value, (event_size, -1))
-
-        def rqs_elem(x_elem, w, h, s):
-            y_elem, lj_elem = rational_quadratic_spline(
-                x_elem,
-                w,
-                h,
-                s,
-                inverse=reverse,
-                min_bin_width=self.min_bin_width,
-                min_bin_height=self.min_bin_height,
-                min_slope=self.min_slope,
-            )
-            return y_elem, lj_elem
-
-        y_elem_first, lj_elem_first = jax.vmap(rqs_elem, in_axes=(0, 0, 0, 0))(
-            x_elem_first, widths, heights, slopes
+        y, log_jac = rational_quadratic_spline(
+            x,
+            self.widths.value,
+            self.heights.value,
+            self.slopes.value,
+            inverse=reverse,
         )
-
-        # Restore original shape
-        y_flat = jnp.moveaxis(y_elem_first, 0, -1)
-        y = jnp.reshape(y_flat, jnp.shape(x))
-
-        log_jac = jnp.moveaxis(lj_elem_first, 0, -1)
-        log_jac = jnp.reshape(log_jac, batch_shape + si.event_shape)
 
         return y, log_density - jnp.sum(log_jac, axis=si.event_axes)

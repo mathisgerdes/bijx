@@ -25,7 +25,7 @@ from bijx import (
     Chain,
     ContFlowDiffrax,
     ContFlowRK4,
-    ConvCNF,
+    ConvVF,
     DiffraxConfig,
     FreeTheoryScaling,
     ModuleReconstructor,
@@ -150,7 +150,7 @@ class TestContinuousFlows:
 
     def test_conv_cnf_build_and_call(self, rng_key):
         """ConvCNF build test: shape handling and divergence shape."""
-        cnf = ConvCNF.build(
+        cnf = ConvVF.build(
             kernel_shape=(3, 3), channel_shape=(1,), rngs=nnx.Rngs(rng_key)
         )
         x = jnp.ones((4, 4, 1))

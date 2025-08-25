@@ -32,7 +32,7 @@ from ..nn.features import (
 from ..utils import ShapeInfo
 
 __all__ = [
-    "ConvCNF",
+    "ConvVF",
 ]
 
 
@@ -43,7 +43,7 @@ def _contract_with_emb(par, t_emb):
     return rearrange(par.value, "... (c t) -> ... c t", t=t_emb.shape[-1]) @ t_emb
 
 
-class ConvCNF(nnx.Module):
+class ConvVF(nnx.Module):
     r"""Convolutional continuous normalizing flow with symmetry preservation.
 
     Implements a vector field for continuous normalizing flows that uses
@@ -61,11 +61,11 @@ class ConvCNF(nnx.Module):
         feature_superposition: Optional feature dimensionality reduction.
 
     Note:
-        Most conveniently constructed using :meth:`ConvCNF.build`.
+        Most conveniently constructed using :meth:`ConvVF.build`.
 
     Example:
         >>> # Build conv CNF for 2D lattice
-        >>> cnf = ConvCNF.build(
+        >>> cnf = ConvVF.build(
         ...     kernel_shape=(3, 3),
         ...     channel_shape=(),
         ...     features=(
@@ -153,7 +153,7 @@ class ConvCNF(nnx.Module):
         features_reduced: int | None = 20,
         rngs: nnx.Rngs,
     ):
-        """Build a ConvCNF with default architecture choices.
+        """Build a ConvVF with default architecture choices.
 
         Constructs a complete convolutional CNF by assembling symmetric convolutions,
         time embeddings, and feature transformations with sensible defaults.
@@ -172,11 +172,11 @@ class ConvCNF(nnx.Module):
             rngs: Random number generator state for parameter initialization.
 
         Returns:
-            ConvCNF instance to be used in continuous normalizing flows.
+            ConvVF instance to be used in continuous normalizing flows.
 
         Example:
             >>> # Standard 2D lattice CNF with Fourier + linear features
-            >>> cnf = ConvCNF.build(
+            >>> cnf = ConvVF.build(
             ...     kernel_shape=(3, 3),
             ...     channel_shape=(1,),  # scalar field
             ...     features_reduced=16,

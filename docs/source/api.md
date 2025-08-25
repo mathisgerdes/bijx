@@ -93,7 +93,7 @@ This section provides comprehensive documentation for all bijx components, organ
    ContFlowCG
    ContFlowDiffrax
    ContFlowRK4
-   ConvCNF
+   ConvVF
    AutoJacVF
 ```
 

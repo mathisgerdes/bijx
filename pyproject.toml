@@ -41,6 +41,7 @@ dev = [
     "pre-commit>=3.0.0",
     "pytest>=7.0",
     "pytest-xdist>=3.0.0",
+    "pytest-cov>=4.0.0",
     "flowjax>=0.3.0",
     "hypothesis[numpy]>=6.90",
     "matplotlib>=3.9.0",
@@ -87,3 +88,19 @@ line_length = 88
 
 [tool.ruff]
 line-length = 88
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "tests/*",
+    "src/bijx/_version.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

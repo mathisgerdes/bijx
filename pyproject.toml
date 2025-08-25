@@ -44,6 +44,7 @@ dev = [
     "flowjax>=0.3.0",
     "hypothesis[numpy]>=6.90",
     "matplotlib>=3.9.0",
+    "nb-clean>=4.0.1",
 ]
 docs = [
     "sphinx",

@@ -14,7 +14,7 @@ repos:
       args: [--line-length=88]
 
 - repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.11.2
+  rev: v0.12.10
   hooks:
     - id: ruff
       args: [
@@ -26,8 +26,18 @@ repos:
       # Exclude __init__.py from F401 (unused import) checks and ipynb files
       exclude: ^.*/__init__\.py$|.*\.ipynb$|docs/source/conf\.py$
 
+- repo: https://github.com/srstevenson/nb-clean
+  rev: 4.0.1
+  hooks:
+    - id: nb-clean
+      args:
+        - --preserve-cell-outputs
+        - --preserve-cell-metadata
+        - id
+        - --
+
 - repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v4.5.0
+  rev: v6.0.0
   hooks:  # Basic sanity checks
     - id: check-yaml
     - id: end-of-file-fixer

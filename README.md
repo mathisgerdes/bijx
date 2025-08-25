@@ -1,10 +1,13 @@
 <p align="center">
-    <img src="docs/source/_static/icons/bijx.svg" alt="bijx logo" height="100">
+    <img src="https://raw.githubusercontent.com/mathisgerdes/bijx/master/docs/source/_static/icons/bijx.svg" alt="bijx logo" height="100">
     <br>
     <em><b>bij</b>ection + ja<b>x</b> = /ˈbaɪdʒæks/</em>
 </p>
 
 # Bijections & normalizing flows with JAX/NNX
+[![Tests](https://github.com/mathisgerdes/bijx/actions/workflows/tests.yml/badge.svg)](https://github.com/mathisgerdes/bijx/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/github/mathisgerdes/bijx/graph/badge.svg?token=QYAJU8QCJE)](https://codecov.io/github/mathisgerdes/bijx)
+[![PyPI](https://img.shields.io/pypi/v/bijx)](https://pypi.org/project/bijx/)
 
 This library provides flexible tools for building normalizing flows and bijections with tractable change of densities, focusing on research and applications in physics. It aims to provide reusable building blocks rather than a simplified interface for common use cases.
 
@@ -109,6 +112,14 @@ assert jnp.allclose(lp_x, lp_x_rec, atol=1e-6)
 - **Runtime Shape Inference**: Use a `batch + space + channels` convention and automatic vectorization for flexible data shape handling.
 
 ## Installation
+
+This package can be installed directly from PyPI:
+
+```bash
+pip install bijx
+```
+
+Alternatively, to install locally from source:
 
 ```bash
 pip install -e .

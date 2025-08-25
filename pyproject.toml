@@ -65,7 +65,7 @@ write_to = "src/bijx/_version.py"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = ["bijx", "bijx.bijections", "bijx.lattice", "bijx.nn"]
+packages = ["bijx", "bijx.lattice", "bijx.nn"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -27,6 +27,14 @@ Physics & advanced methods:
 - **Symmetry-Aware Architectures**: Equivariant layers and transformations (e.g., lattice-symmetric CNFs)
 - **Fourier-Space Operations**: Tools for momentum space transformations and complex field decomposition
 
+## Related Publications
+
+This library extends research software developed for the following publications, which you may find useful and may consider citing if you use the relevant components:
+
+- **[Learning Lattice Quantum Field Theories with Equivariant Continuous Flows](https://arxiv.org/abs/2207.00283)**
+
+- **[Continuous Normalizing Flows for Lattice Gauge Theories](https://arxiv.org/abs/2410.13161)**
+
 ## Quickstart
 
 Here is a minimal example of building and sampling from a simple normalizing flow. We transform samples from a base distribution (a standard normal) using a chain of bijections to produce samples from a new, transformed distribution.

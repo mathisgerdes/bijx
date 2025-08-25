@@ -1,0 +1,64 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "bijx: Bijections & normalizing flows with JAX/NNX"
+abstract: "Flexible tools for building normalizing flows and bijections with tractable change of densities, focusing on research and applications in physics."
+authors:
+  - family-names: Gerdes
+    given-names: Mathis
+    orcid: https://orcid.org/0000-0002-2369-1436
+repository-code: "https://github.com/mathisgerdes/bijx"
+url: "https://github.com/mathisgerdes/bijx"
+license: Apache-2.0
+version: 0.1.0
+
+# The preferred citation will be the JOSS paper once published
+# preferred-citation:
+#   type: article
+#   title: "bijx: Bijections & normalizing flows with JAX/NNX"
+#   authors:
+#     - family-names: Gerdes
+#       given-names: Mathis
+#     - family-names: Cheng
+#       given-names: Miranda C. N.
+#   journal: "Journal of Open Source Software"
+#   # ... will be added after JOSS acceptance
+
+# Related publications that used precursor software now incorporated in bijx
+references:
+  - type: article
+    title: "Learning Lattice Quantum Field Theories with Equivariant Continuous Flows"
+    authors:
+      - family-names: Gerdes
+        given-names: Mathis
+      - family-names: de Haan
+        given-names: Pim
+      - family-names: Rainone
+        given-names: Corrado
+      - family-names: Bondesan
+        given-names: Roberto
+      - family-names: Cheng
+        given-names: Miranda C. N.
+    journal: "SciPost Physics"
+    volume: 15
+    issue: 6
+    pages: 238
+    year: 2023
+    doi: 10.21468/SciPostPhys.15.6.238
+    url: "https://arxiv.org/abs/2207.00283"
+
+  - type: article
+    title: "Continuous Normalizing Flows for Lattice Gauge Theories"
+    authors:
+      - family-names: Gerdes
+        given-names: Mathis
+      - family-names: de Haan
+        given-names: Pim
+      - family-names: Bondesan
+        given-names: Roberto
+      - family-names: Cheng
+        given-names: Miranda C. N.
+    year: 2024
+    doi: 10.48550/arXiv.2410.13161
+    url: "https://arxiv.org/abs/2410.13161"
+    notes: "Preprint"

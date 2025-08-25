@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bijx"
 dynamic = ["version"]
-description = "Bijection and normalizing flow library for jax"
+description = "Bijections & normalizing flows with JAX/NNX"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"

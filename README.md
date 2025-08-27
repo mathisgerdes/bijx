@@ -5,6 +5,8 @@
 </p>
 
 # Bijections & normalizing flows with JAX/NNX
+[![GitHub](https://img.shields.io/badge/code-gray?logo=github&logoColor=white)](https://github.com/mathisgerdes/bijx)
+[![docs build](https://github.com/mathisgerdes/bijx/actions/workflows/docs.yml/badge.svg)](https://mathisgerdes.github.io/bijx/)
 [![Tests](https://github.com/mathisgerdes/bijx/actions/workflows/tests.yml/badge.svg)](https://github.com/mathisgerdes/bijx/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/github/mathisgerdes/bijx/graph/badge.svg?token=QYAJU8QCJE)](https://codecov.io/github/mathisgerdes/bijx)
 [![PyPI](https://img.shields.io/pypi/v/bijx)](https://pypi.org/project/bijx/)

@@ -13,8 +13,54 @@ from .meta import *
 from .scalar import *
 from .splines import *
 
-# Collect __all__ from all submodules to prevent module names from being exported
-__all__ = []
-for module in [base, continuous, conv_cnf, coupling, fourier, meta, scalar, splines]:
-    if hasattr(module, "__all__"):
-        __all__.extend(module.__all__)
+__all__ = [
+    # -- base -- #
+    "Bijection",
+    "ApplyBijection",
+    "CondInverse",
+    "Inverse",
+    "Chain",
+    "ScanChain",
+    "Frozen",
+    "Identity",
+    # -- continuous -- #
+    "ContFlowDiffrax",
+    "ContFlowRK4",
+    "ContFlowCG",
+    "AutoJacVF",
+    # -- conv_cnf -- #
+    "ConvVF",
+    # -- coupling -- #
+    "BinaryMask",
+    "checker_mask",
+    "ModuleReconstructor",
+    "AutoVmapReconstructor",
+    "GeneralCouplingLayer",
+    # -- fourier -- #
+    "SpectrumScaling",
+    "FreeTheoryScaling",
+    "ToFourierData",
+    # -- meta -- #
+    "MetaLayer",
+    "ExpandDims",
+    "SqueezeDims",
+    "Reshape",
+    "Partial",
+    # -- scalar -- #
+    "AffineLinear",
+    "BetaStretch",
+    "Exponential",
+    "GaussianCDF",
+    "Power",
+    "Scaling",
+    "Shift",
+    "Sigmoid",
+    "Sinh",
+    "Tan",
+    "Tanh",
+    "SoftPlus",
+    "ScalarBijection",
+    # -- splines -- #
+    "MonotoneRQSpline",
+    "rational_quadratic_spline",
+]

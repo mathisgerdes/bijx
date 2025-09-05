@@ -20,22 +20,6 @@ from flax import nnx, struct
 from ..utils import ParamSpec, ShapeInfo, default_wrap
 from .base import Bijection
 
-__all__ = [
-    "AffineLinear",
-    "BetaStretch",
-    "Exponential",
-    "GaussianCDF",
-    "Power",
-    "Scaling",
-    "Shift",
-    "Sigmoid",
-    "Sinh",
-    "Tan",
-    "Tanh",
-    "SoftPlus",
-    "ScalarBijection",
-]
-
 
 # not exported (can still be accessed as bijx.bijections.scalar...)
 @struct.dataclass

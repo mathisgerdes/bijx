@@ -31,10 +31,6 @@ from ..nn.features import (
 )
 from ..utils import ShapeInfo
 
-__all__ = [
-    "ConvVF",
-]
-
 
 def _contract_with_emb(par, t_emb):
     """Contract parameter tensor with time embedding."""

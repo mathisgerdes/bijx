@@ -16,11 +16,6 @@ from jax_autovmap import autovmap
 from ..utils import ShapeInfo
 from .base import ApplyBijection
 
-__all__ = [
-    "MonotoneRQSpline",
-    "rational_quadratic_spline",
-]
-
 
 @autovmap(inputs=0, bin_widths=1, bin_heights=1, knot_slopes=1)
 def rational_quadratic_spline(

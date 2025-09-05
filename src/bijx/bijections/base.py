@@ -24,17 +24,6 @@ from flax import nnx
 
 from ..utils import Const
 
-__all__ = [
-    "Bijection",
-    "ApplyBijection",
-    "CondInverse",
-    "Inverse",
-    "Chain",
-    "ScanChain",
-    "Frozen",
-    "Identity",
-]
-
 
 class Bijection(nnx.Module):
     """Base class for all bijective transformations.

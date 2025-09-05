@@ -18,12 +18,6 @@ from ..fourier import FFTRep, FourierData, FourierMeta, fft_momenta
 from ..utils import Const, ShapeInfo
 from .base import ApplyBijection, Bijection
 
-__all__ = [
-    "SpectrumScaling",
-    "FreeTheoryScaling",
-    "ToFourierData",
-]
-
 
 class SpectrumScaling(ApplyBijection):
     r"""Diagonal scaling transformation in Fourier space.

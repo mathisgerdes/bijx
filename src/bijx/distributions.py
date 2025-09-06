@@ -6,7 +6,7 @@ common probability distributions used in normalizing flows. All distributions
 support both sampling and log-density evaluation with automatic batch handling.
 """
 
-from collections.abc import Callable
+from functools import partial
 
 import flax.typing as ftp
 import jax
@@ -15,14 +15,17 @@ import numpy as np
 from flax import nnx
 from jax_autovmap import autovmap
 
-from .utils import ShapeInfo, default_wrap
+from .utils import Const, ParamSpec, ShapeInfo, default_wrap
 
 __all__ = [
     "Distribution",
     "ArrayDistribution",
     "IndependentNormal",
     "IndependentUniform",
-    "DiagonalGMM",
+    "MultivariateNormal",
+    "DiagonalNormal",
+    "MixtureStack",
+    "GaussianMixture",
 ]
 
 
@@ -228,142 +231,505 @@ class IndependentUniform(ArrayDistribution):
         return logp
 
 
-class DiagonalGMM(Distribution):
-    r"""Gaussian mixture model with diagonal covariance matrices.
+def _cov_init(key, shape):
+    assert shape[-1] == shape[-2], "covariance must be a square matrix"
+    cov = jnp.eye(shape[-1])
+    noise = jax.random.normal(key, shape) * 0.005 / jnp.sqrt(shape[-1])
+    return cov + (noise + noise.swapaxes(-1, -2))
 
-    Implements a mixture of multivariate Gaussian distributions where each
-    component has a diagonal covariance matrix. The mixture weights, means,
-    and scales (standard deviations) can be learnable parameters.
+
+def _cholesky_fold(cholesky_matrix):
+    return cholesky_matrix[jnp.tril_indices(cholesky_matrix.shape[0])]
+
+
+def _chol_size_to_dim(size):
+    return int((np.sqrt(1 + 8 * size) - 1) / 2)
+
+
+def _dim_to_chol_size(dim):
+    return (dim * (dim + 1)) // 2
+
+
+@autovmap(cholesky=1)
+def _cholesky_unfold(cholesky):
+    assert cholesky.ndim == 1
+    size = _chol_size_to_dim(cholesky.size)
+    cholesky_matrix = jnp.zeros((size, size))
+    cholesky_matrix = cholesky_matrix.at[jnp.tril_indices(size)].set(cholesky)
+    return cholesky_matrix
+
+
+@autovmap(cov=2)
+def _cov_to_cholesky(cov):
+    return _cholesky_fold(jnp.linalg.cholesky(cov))
+
+
+def _init_cholesky(key, shape):
+    size = _chol_size_to_dim(shape[-1])
+    cov = _cov_init(key, (*shape[:-1], size, size))
+    return _cov_to_cholesky(cov)
+
+
+class MultivariateNormal(ArrayDistribution):
+    r"""Multivariate normal distribution with Cholesky parametrization.
+
+    Implements a multivariate Gaussian distribution using Cholesky decomposition
+    for numerical stability. The covariance matrix is represented by its Cholesky
+    factor, which ensures positive definiteness and enables efficient sampling
+    and density evaluation.
 
     The log density is computed as:
 
     $$
-    \log p(\mathbf{x}) =
-    \log \sum_{k=1}^K w_k \exp\left(-\frac{1}{2}\sum_{i=1}^d
-    \frac{(x_i - \mu_{k,i})^2}{\sigma_{k,i}^2} -
-    \frac{1}{2}\sum_{i=1}^d \log(2\pi\sigma_{k,i}^2)\right)
+    \log p(\mathbf{x}) = -\frac{1}{2}(\mathbf{x} - \boldsymbol{\mu})^T
+    \mathbf{L}^{-T}\mathbf{L}^{-1}(\mathbf{x} - \boldsymbol{\mu}) -
+    \frac{d}{2}\log(2\pi) - \sum_{i=1}^d \log L_{ii}
     $$
 
-    Args:
-        means: Component means, shape (n_components, data_dim).
-        scales: Component standard deviations, shape (n_components, data_dim).
-        weights: Component mixture weights, shape (n_components,).
-        process_scales: Function to ensure positive scales (default: abs).
-        process_weights: Function to normalize weights (default: softmax).
-        process_means: Function to process means (default: identity).
-        rngs: Random number generator state.
+    where $\mathbf{L}$ is the Cholesky factor such that
+    $\boldsymbol{\Sigma} = \mathbf{L}\mathbf{L}^T$.
 
-    Note:
-        Assumes data events are one-dimensional arrays (vectors).
+    Args:
+        mean: Mean vector, shape (dim,) or scalar dim.
+        cholesky: Cholesky factor vector (packed lower triangular),
+            shape (dim*(dim+1)//2,).
+        rngs: Optional random number generator state.
+        var_cls: Variable class for parameters (default: nnx.Param).
+
+    Example:
+        >>> # 2D multivariate normal
+        >>> mean = jnp.array([1.0, 2.0])
+        >>> cov = jnp.array([[2.0, 0.5], [0.5, 1.0]])
+        >>> dist = MultivariateNormal.given_cov(mean, cov)
+        >>> samples, log_p = dist.sample(batch_shape=(100,), rng=rng)
+        >>> assert samples.shape == (100, 2)
+        >>> assert log_p.shape == (100,)
+
+    The parameters an also be instantiated given shapes, and mean is sufficient:
+        >>> dist = MultivariateNormal((3,), rngs=nnx.Rngs(0))  # 3D multivariate normal
     """
 
     def __init__(
         self,
-        means,
-        scales,
-        weights,
+        mean: ParamSpec,
+        cholesky: ParamSpec | None = None,
         *,
-        process_scales: Callable[[jax.Array], jax.Array] = jnp.abs,
-        process_weights: Callable[[jax.Array], jax.Array] = jax.nn.softmax,
-        process_means: Callable[[jax.Array], jax.Array] = lambda x: x,
-        rngs: nnx.Rngs,
+        rngs=None,
+        var_cls=nnx.Param,
+        epsilon: float = 1e-10,
     ):
-        super().__init__(rngs)
-
-        self._means = default_wrap(means, init_fn=nnx.initializers.normal(), rngs=rngs)
-        self._scales = default_wrap(scales, init_fn=nnx.initializers.ones, rngs=rngs)
-        self._weights = default_wrap(weights, init_fn=nnx.initializers.ones, rngs=rngs)
-
-        self.process_scales = process_scales
-        self.process_weights = process_weights
-        self.process_means = process_means
-
-        assert (self.means.ndim, self.variances.ndim, self.weights.ndim) == (2, 2, 1)
-        assert self.means.shape[0] == self.variances.shape[0] == self.weights.shape[0]
-
-    def get_batch_shape(self, x: jax.Array) -> tuple[int, ...]:
-        return x.shape[:-1]
-
-    @property
-    def means(self):
-        return self.process_means(self._means.value)
-
-    @property
-    def variances(self):
-        return self.scales**2
-
-    @property
-    def scales(self):
-        return self.process_scales(self._scales.value)
-
-    @property
-    def weights(self):
-        return self.process_weights(self._weights.value)
-
-    @autovmap(x=1)
-    def log_density(self, x):
-        """Compute log probability density of the Gaussian mixture model.
+        """Initialize multivariate normal distribution.
 
         Args:
-            x: Input points with shape (batch_size, data_dim).
+            mean: Mean vector specification.
+            cholesky: Cholesky factor specification (packed lower triangular).
+            rngs: Optional random number generator state.
+            var_cls: Variable class for parameters.
+            epsilon: Small regularization constant to ensure numerical stability.
+        """
+        self.epsilon = epsilon
+        self.mean = default_wrap(
+            mean, cls=var_cls, rngs=rngs, init_fn=nnx.initializers.normal()
+        )
+        dim = self.mean.shape[-1]
+
+        if cholesky is None:
+            cholesky = (*self.mean.shape[:-1], _dim_to_chol_size(dim))
+
+        self.cholesky = default_wrap(
+            cholesky, cls=var_cls, rngs=rngs, init_fn=_init_cholesky
+        )
+        assert dim == _chol_size_to_dim(self.cholesky.shape[-1]), (
+            f"mean dimension {dim} does not match covariance dimension "
+            + f"{_chol_size_to_dim(self.cholesky.shape[-1])} implicit in cholesky "
+            + f"shape {self.cholesky.shape}"
+        )
+        super().__init__(rngs=rngs, event_shape=(dim,))
+
+    @property
+    def dim(self):
+        """Dimensionality of the distribution."""
+        return self.mean.size
+
+    @property
+    def cov(self):
+        """Reconstruct covariance matrix from Cholesky factor."""
+        matrix = _cholesky_unfold(self.cholesky.value)
+        return jnp.einsum("...ij,...kj->...ik", matrix, matrix)
+
+    @classmethod
+    def given_dim(
+        cls, dim: int, *, rngs: nnx.Rngs, var_cls=nnx.Param, epsilon: float = 1e-10
+    ):
+        """Create multivariate normal with given dimensionality.
+
+        Args:
+            dim: Dimensionality of the distribution.
+            rngs: Random number generator state.
+            var_cls: Variable class for parameters.
+            epsilon: Small regularization constant to ensure numerical stability.
 
         Returns:
-            Log probability density for each point with shape (batch_size,).
+            MultivariateNormal instance.
         """
-        weights = self.weights
-        means = self.means
-        variances = self.variances  # (components, dim)
-        dim = x.size
-        assert dim == means.shape[1]
+        cholesky_size = _dim_to_chol_size(dim)
+        return cls(
+            (dim,), (cholesky_size,), rngs=rngs, var_cls=var_cls, epsilon=epsilon
+        )
 
-        x_expanded = x[None, :]  # (components, dim)
-        diff = x_expanded - means  # (components, dim)
-
-        mahalanobis = jnp.sum(diff**2 / variances, axis=1)
-        log_dets = jnp.sum(jnp.log(variances), axis=1)  # (components,)
-        log_gaussians = -0.5 * (log_dets + mahalanobis + dim * jnp.log(2 * jnp.pi))
-
-        log_gaussians = log_gaussians + jnp.log(weights)
-        return jax.nn.logsumexp(log_gaussians, axis=0)
-
-    def sample(self, batch_shape=(), rng=None):
-        """Generate samples from the Gaussian mixture model.
+    @classmethod
+    def given_cov(
+        cls,
+        mean: jnp.ndarray,
+        cov: jnp.ndarray,
+        *,
+        rngs=None,
+        var_cls=Const,
+        epsilon: float = 1e-10,
+    ):
+        """Create multivariate normal with given mean and covariance.
 
         Args:
-            batch_shape: Shape of batch dimensions for sampling.
+            mean: Mean vector.
+            cov: Covariance matrix.
+            rngs: Optional random number generator state.
+            var_cls: Variable class for parameters (default: Const).
+            epsilon: Small regularization constant to ensure numerical stability.
+
+        Returns:
+            MultivariateNormal instance.
+        """
+        cholesky = _cov_to_cholesky(cov)
+        return cls(mean, cholesky, rngs=rngs, var_cls=var_cls, epsilon=epsilon)
+
+    def log_density(self, x):
+        """Compute log probability density at given points.
+
+        Args:
+            x: Points at which to evaluate density, shape (..., dim).
+
+        Returns:
+            Log density values with batch dimensions matching input.
+        """
+        cholesky = _cholesky_unfold(self.cholesky.value)
+        whitened = jnp.vectorize(
+            partial(jax.lax.linalg.triangular_solve, lower=True, transpose_a=True),
+            signature="(n,n),(n)->(n)",
+        )(cholesky, x - self.mean)
+        log_density = -1 / 2 * jnp.einsum("...i,...i->...", whitened, whitened)
+        log_density -= self.dim / 2 * jnp.log(2 * jnp.pi)
+        # Apply epsilon regularization to prevent NaN from log(0) or log(negative)
+        safe_diagonal = jnp.abs(cholesky.diagonal()) + self.epsilon
+        return log_density - jnp.log(safe_diagonal).sum(-1)
+
+    def sample(self, batch_shape=(), rng=None):
+        """Generate samples from the distribution.
+
+        Args:
+            batch_shape: Shape of batch dimensions for vectorized sampling.
             rng: Random key for sampling, or None to use internal rngs.
 
         Returns:
-            Tuple of ``(samples, log_densities)`` where samples have shape
-            ``(*batch_shape, data_dim)`` and log_densities have shape ``batch_shape``.
+            Tuple of (samples, log_densities) where samples have shape
+            (*batch_shape, dim) and log_densities have shape batch_shape.
         """
-        count = int(np.prod(batch_shape) if batch_shape else 1)
-        rng = self.rngs.sample() if rng is None else rng
-        key_components, key_gaussian = jax.random.split(rng, 2)
+        rng = self._get_rng(rng)
+        noise = jax.random.normal(rng, (*batch_shape, self.dim))
+        cholesky = _cholesky_unfold(self.cholesky.value)
+        # Apply epsilon regularization to ensure valid Cholesky decomposition
+        safe_diagonal = jnp.abs(cholesky.diagonal()) + self.epsilon
+        cholesky = cholesky.at[jnp.diag_indices(cholesky.shape[-1])].set(safe_diagonal)
+        samples = self.mean + jnp.einsum("...ij,...j->...i", cholesky, noise)
+        return samples, self.log_density(samples)
 
-        # Sample component indices based on weights
+
+class DiagonalNormal(ArrayDistribution):
+    r"""Multivariate normal distribution with diagonal covariance matrix.
+
+    Implements a multivariate Gaussian distribution with diagonal covariance,
+    allowing different means and variances for each dimension. This is simpler
+    and more efficient than the full MultivariateNormal when off-diagonal
+    correlations are not needed.
+
+    The log density is computed as:
+
+    $$
+    \log p(\mathbf{x}) = -\frac{1}{2}\sum_{i=1}^d \left(
+    \frac{(x_i - \mu_i)^2}{\sigma_i^2} + \log(2\pi\sigma_i^2)
+    \right)
+    $$
+
+    Args:
+        mean: Mean vector, shape (dim,) or scalar dim.
+        scales: Standard deviation vector, shape (dim,).
+        rngs: Optional random number generator state.
+        var_cls: Variable class for parameters (default: nnx.Param).
+
+    Example:
+        >>> # 2D diagonal normal with different means and variances
+        >>> mean = jnp.array([1.0, 2.0])
+        >>> scales = jnp.array([0.5, 1.5])
+        >>> dist = DiagonalNormal(mean, scales)
+        >>> samples, log_p = dist.sample(batch_shape=(100,), rng=rng)
+        >>> assert samples.shape == (100, 2)
+        >>> assert log_p.shape == (100,)
+
+    The parameters an also be instantiated given shapes, and mean is sufficient:
+        >>> dist = DiagonalNormal((3,), rngs=nnx.Rngs(0))  # 3D multivariate normal
+    """
+
+    def __init__(
+        self,
+        mean: ParamSpec,
+        scales: ParamSpec | None = None,
+        *,
+        rngs=None,
+        var_cls=nnx.Param,
+        epsilon: float = 1e-10,
+    ):
+        """Initialize diagonal multivariate normal distribution.
+
+        Args:
+            mean: Mean vector specification.
+            scales: Standard deviation vector specification.
+            rngs: Optional random number generator state.
+            var_cls: Variable class for parameters.
+        """
+        # Wrap parameters first
+        self.mean = default_wrap(
+            mean, cls=var_cls, rngs=rngs, init_fn=nnx.initializers.normal()
+        )
+        if scales is None:
+            scales = self.mean.shape
+        self.scales_bare = default_wrap(
+            scales, cls=var_cls, rngs=rngs, init_fn=nnx.initializers.ones
+        )
+
+        super().__init__(rngs=rngs, event_shape=(self.mean.size,))
+        self.epsilon = epsilon
+        assert self.mean.size == self.scales.size
+
+    @classmethod
+    def given_dim(
+        cls, dim: int, *, rngs=None, var_cls=nnx.Param, epsilon: float = 1e-10
+    ):
+        """Create diagonal normal with given dimensionality.
+
+        Args:
+            dim: Dimensionality of the distribution.
+            rngs: Optional random number generator state.
+            var_cls: Variable class for parameters.
+            epsilon: Small regularization constant to ensure numerical stability.
+
+        Returns:
+            DiagonalNormal instance.
+        """
+        return cls((dim,), rngs=rngs, var_cls=var_cls, epsilon=epsilon)
+
+    @classmethod
+    def given_variances(
+        cls,
+        mean: ParamSpec,
+        variances: ParamSpec,
+        *,
+        rngs=None,
+        var_cls=nnx.Param,
+        epsilon: float = 1e-10,
+    ):
+        """Create diagonal normal with given variances.
+
+        Note: If variances is an instace of nnx.Variable, its value is cloned but the
+        type is preserved (nnx.Param, Const, etc.).
+
+        Args:
+            variances: Variance vector.
+            rngs: Optional random number generator state.
+            var_cls: Variable class for parameters.
+            epsilon: Small regularization constant to ensure numerical stability.
+
+        Returns:
+            DiagonalNormal instance.
+        """
+        if hasattr(variances, "shape"):
+            scales = jnp.sqrt(variances)
+            if isinstance(variances, nnx.Variable):
+                scales = type(variances)(scales)
+        return DiagonalNormal(mean, scales, rngs=rngs, var_cls=var_cls, epsilon=epsilon)
+
+    @property
+    def dim(self):
+        """Dimensionality of the distribution."""
+        return self.mean.size
+
+    @property
+    def variances(self):
+        """Variance vector (scales squared)."""
+        return self.scales**2
+
+    @property
+    def cov(self):
+        """Covariance matrix (diagonal)."""
+        return autovmap(1)(jnp.diag)(self.variances)
+
+    @property
+    def scales(self):
+        return jnp.abs(self.scales_bare.value) + self.epsilon
+
+    def log_density(self, x):
+        """Compute log probability density at given points.
+
+        Args:
+            x: Points at which to evaluate density, shape (..., dim).
+
+        Returns:
+            Log density values with batch dimensions matching input.
+        """
+        diff = x - self.mean
+        scaled_diff = diff / self.scales
+        log_density = -0.5 * jnp.sum(scaled_diff**2, axis=-1)
+        log_density -= 0.5 * self.dim * jnp.log(2 * jnp.pi)
+        return log_density - jnp.sum(jnp.log(self.scales), axis=-1)
+
+    def sample(self, batch_shape=(), rng=None):
+        """Generate samples from the distribution.
+
+        Args:
+            batch_shape: Shape of batch dimensions for vectorized sampling.
+            rng: Random key for sampling, or None to use internal rngs.
+
+        Returns:
+            Tuple of (samples, log_densities) where samples have shape
+            (*batch_shape, dim) and log_densities have shape batch_shape.
+        """
+        rng = self._get_rng(rng)
+        noise = jax.random.normal(rng, (*batch_shape, self.dim))
+        samples = self.mean + self.scales * noise
+        return samples, self.log_density(samples)
+
+
+class MixtureStack(Distribution):
+    """Mixture of distributions of equal kind.
+
+    See also :class:`bijx.ScanChain` for a related construct except for composing
+    bijections instead of mixing distributions.
+    """
+
+    def __init__(self, distributions: Distribution, weights: ParamSpec, *, rngs=None):
+        super().__init__(rngs=rngs)
+        # need some care to be very sure distributions.rngs aren't used
+        distributions = nnx.clone(distributions)
+        distributions.rngs = None
+
+        dist_graph, rng_state, dist_vars = nnx.split(distributions, nnx.RngState, ...)
+        self.dist_graph = dist_graph
+        self.dist_vars = dist_vars
+
+        assert len(rng_state) == 0, "stack must not carry hidden rngs"
+
+        self.dist_count = jax.tree.leaves(dist_vars)[0].shape[0]
+        self.weights = default_wrap(weights, init_fn=nnx.initializers.zeros, rngs=rngs)
+
+    @property
+    def weights_normalized(self):
+        return nnx.softmax(self.weights.value)
+
+    @property
+    def weights_log_normalized(self):
+        return nnx.log_softmax(self.weights.value)
+
+    @property
+    def stack(self):
+        return nnx.merge(self.dist_graph, self.dist_vars)
+
+    def _dist(self, idx: int):
+        dist_vars = jax.tree.map(lambda v: v[idx], self.dist_vars)
+        return nnx.merge(self.dist_graph, dist_vars)
+
+    def get_batch_shape(self, x):
+        return self._dist(0).get_batch_shape(x)
+
+    def log_density(self, x):
+        lds = nnx.vmap(lambda d: d.log_density(x), out_axes=-1)(self.stack)
+        return jax.nn.logsumexp(lds + self.weights_log_normalized, axis=-1)
+
+    @partial(jax.vmap, in_axes=(None, 0))
+    def _sample(self, rng):
+        rng_choice, rng_sample = jax.random.split(rng)
         component_indices = jax.random.choice(
-            key_components,
-            len(self.weights),
-            shape=(count,),
-            p=self.weights,
+            rng_choice,
+            self.dist_count,
+            p=self.weights_normalized,
         )
+        return self._dist(component_indices).sample((), rng=rng_sample)[0]
 
-        means = self.means
-        scales = self.scales
-
-        @jax.vmap
-        def _sample(i, component):
-            normal_samples = jax.random.normal(
-                jax.random.fold_in(key_gaussian, i), means.shape[1:]
-            )
-            return means[component] + scales[component] * normal_samples
-
-        samples = _sample(
-            jnp.arange(count),
-            component_indices,
-        )
-
+    def sample(self, batch_shape=(), rng=None):
+        total = int(np.prod(batch_shape) if batch_shape else 1)
+        rng = self._get_rng(rng)
+        samples = self._sample(jax.random.split(rng, total))
+        samples = jax.tree.map(lambda x: x.reshape(*batch_shape, *x.shape[1:]), samples)
         log_density = self.log_density(samples)
+        return samples, log_density
 
-        return samples.reshape(*batch_shape, -1), log_density.reshape(batch_shape)
+
+class GaussianMixture(Distribution):
+    """Gaussian mixture model.
+
+    This is a convenience wrapper around :class:`MixtureStack`
+    of either diagonal or general multivariate normal distributions.
+    """
+
+    def __init__(
+        self,
+        means: ParamSpec,
+        covariances: ParamSpec | None = None,
+        weights: ParamSpec | None = None,
+        *,
+        rngs=None,
+        var_cls=nnx.Param,
+        epsilon: float = 1e-10,
+    ):
+        super().__init__(rngs=rngs)
+        means = default_wrap(means, init_fn=nnx.initializers.normal(), rngs=rngs)
+        mean_shape = means.shape
+
+        cov_shape = covariances.shape if hasattr(covariances, "shape") else covariances
+
+        if len(mean_shape) == len(cov_shape):
+            stack = DiagonalNormal.given_variances(
+                mean=means,
+                variances=covariances,
+                rngs=rngs,
+                var_cls=var_cls,
+                epsilon=epsilon,
+            )
+        else:
+            stack = MultivariateNormal.given_cov(
+                mean=means,
+                cov=covariances,
+                rngs=rngs,
+                var_cls=var_cls,
+                epsilon=epsilon,
+            )
+
+        if weights is None:
+            weights = (means.shape[0],)
+
+        self.mixture = MixtureStack(stack, weights, rngs=rngs)
+
+    def get_batch_shape(self, x):
+        return self.mixture.get_batch_shape(x)
+
+    def covs(self):
+        return self.mixture.stack.cov
+
+    def means(self):
+        return self.mixture.stack.mean
+
+    def weights(self):
+        return self.mixture.weights_normalized
+
+    def log_density(self, x):
+        return self.mixture.log_density(x)
+
+    def sample(self, batch_shape=(), rng=None):
+        return self.mixture.sample(batch_shape, rng)

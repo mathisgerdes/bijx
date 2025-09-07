@@ -7,6 +7,7 @@ The following examples showcase how features of `bijx` can be combined into a mo
 :caption: Examples:
 
 tutorials/continuous
+tutorials/gmm-spiral
 tutorials/scalar-theory
 tutorials/su3-flow
 ```

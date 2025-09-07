@@ -28,7 +28,10 @@ This section provides comprehensive documentation for all bijx components, organ
 
    IndependentNormal
    IndependentUniform
-   DiagonalGMM
+   MultivariateNormal
+   DiagonalNormal
+   MixtureStack
+   GaussianMixture
 ```
 
 ### Sampling and Transforms

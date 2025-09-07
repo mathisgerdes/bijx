@@ -93,7 +93,8 @@ class Distribution(nnx.Module):
 
         Returns:
             Tuple of (samples, log_densities) where samples have shape
-            ``(*batch_shape, *event_shape)`` and log_densities have shape batch_shape.
+            ``(*batch_shape, *event_shape)``
+            and log_densities have shape ``batch_shape``.
         """
         raise NotImplementedError()
 
@@ -431,7 +432,7 @@ class MultivariateNormal(ArrayDistribution):
 
         Returns:
             Tuple of (samples, log_densities) where samples have shape
-            (*batch_shape, dim) and log_densities have shape batch_shape.
+            ``(*batch_shape, dim)`` and log_densities have shape ``batch_shape``.
         """
         rng = self._get_rng(rng)
         noise = jax.random.normal(rng, (*batch_shape, self.dim))
@@ -599,7 +600,7 @@ class DiagonalNormal(ArrayDistribution):
 
         Returns:
             Tuple of (samples, log_densities) where samples have shape
-            (*batch_shape, dim) and log_densities have shape batch_shape.
+            ``(*batch_shape, dim)`` and log_densities have shape ``batch_shape``.
         """
         rng = self._get_rng(rng)
         noise = jax.random.normal(rng, (*batch_shape, self.dim))

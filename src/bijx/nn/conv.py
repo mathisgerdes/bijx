@@ -540,7 +540,7 @@ class ConvSym(nnx.Module):
             self.orbits = Const(orbits)
             w_shape = (orbit_count, kernel_shape[-2], kernel_shape[-1])
         else:
-            self.orbits = Const(None)
+            self.orbits = None
             w_shape = (np.prod(kernel_shape[:-2]), kernel_shape[-2], kernel_shape[-1])
 
         # Choose parameter dtype lazily to respect global precision settings
@@ -557,7 +557,7 @@ class ConvSym(nnx.Module):
             bias_key = rngs.params()
             self.bias = nnx.Param(bias_init(bias_key, bias_shape, chosen_param_dtype))
         else:
-            self.bias = nnx.Param(None)
+            self.bias = None
 
         self.in_features = in_features
         self.out_features = out_features

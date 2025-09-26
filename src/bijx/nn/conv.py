@@ -523,6 +523,7 @@ class ConvSym(nnx.Module):
         bias_init: ftp.Initializer = nnx.nn.linear.default_bias_init,
         conv_general_dilated: ftp.ConvGeneralDilatedT = jax.lax.conv_general_dilated,
         promote_dtype: ftp.PromoteDtypeFn = dtypes.promote_dtype,
+        preferred_element_type: ftp.Dtype | None = None,
         rngs: nnx.Rngs,
     ):
         if isinstance(kernel_size, int):
@@ -570,12 +571,13 @@ class ConvSym(nnx.Module):
         self.use_bias = use_bias
         self.mask = mask
         self.dtype = dtype
-        self.param_dtype = chosen_param_dtype
+        self.param_dtype = param_dtype
         self.precision = precision
         self.kernel_init = kernel_init
         self.bias_init = bias_init
         self.conv_general_dilated = conv_general_dilated
         self.promote_dtype = promote_dtype
+        self.preferred_element_type = preferred_element_type
 
     @property
     def kernel(self) -> nnx.Param[jax.Array]:

@@ -627,7 +627,7 @@ class MixtureStack(Distribution):
 
         dist_graph, rng_state, dist_vars = nnx.split(distributions, nnx.RngState, ...)
         self.dist_graph = dist_graph
-        self.dist_vars = dist_vars
+        self.dist_vars = nnx.data(dist_vars)
 
         assert len(rng_state) == 0, "stack must not carry hidden rngs"
 

@@ -245,11 +245,11 @@ class ConcatFeatures(NonlinearFeatures):
 
     def __init__(
         self,
-        features: list[NonlinearFeatures],
+        features: nnx.List[NonlinearFeatures],
         rngs: nnx.Rngs | None = None,
     ):
         super().__init__(sum(f.out_channel_size for f in features), rngs=rngs)
-        self.features = features
+        self.features = nnx.List(features)
 
     def apply_feature_map(self, phi_lin, **kwargs):
         """Apply all component feature transformations and concatenate results.

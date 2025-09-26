@@ -229,7 +229,7 @@ class Chain(Bijection):
     """
 
     def __init__(self, *bijections: Bijection):
-        self.bijections = list(bijections)
+        self.bijections = nnx.List(bijections)
 
     def forward(self, x, log_density, *, arg_list: list[dict] | None = None, **kwargs):
         """Apply all bijections in forward order.

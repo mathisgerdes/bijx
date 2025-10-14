@@ -36,8 +36,6 @@ import numpy as np
 from flax import nnx
 from flax.nnx.nn import dtypes
 
-from ..utils import Const
-
 
 def conv_indices(shape: tuple[int, ...], return_flat=True, center=True):
     """Generate index matrix for translation invariant convolution layers.
@@ -538,7 +536,7 @@ class ConvSym(nnx.Module):
 
         if orbit_function is not None:
             orbit_count, orbits = orbit_function(kernel_size)
-            self.orbits = Const(orbits)
+            self.orbits = nnx.data(orbits)
             w_shape = (orbit_count, kernel_shape[-2], kernel_shape[-1])
         else:
             self.orbits = None
@@ -583,7 +581,7 @@ class ConvSym(nnx.Module):
     def kernel(self) -> nnx.Param[jax.Array]:
         """Construct full kernel from orbit-shared parameters."""
         if self.orbits is not None:
-            kernel = self.kernel_params[self.orbits.value]
+            kernel = self.kernel_params[self.orbits]
         else:
             kernel = self.kernel_params.reshape(self.kernel_shape)
         return nnx.Param(kernel)

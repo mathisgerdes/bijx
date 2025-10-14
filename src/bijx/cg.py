@@ -20,15 +20,14 @@ This ensures $g_{n+1} \in G$ whenever $g_n \in G$.
 
 from functools import partial, reduce
 
-import flax.struct
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import nnx
 from jax import core, custom_derivatives
 
 
-@flax.struct.dataclass
-class ButcherTableau:
+class ButcherTableau(nnx.Pytree):
     r"""Butcher tableau defining coefficients for Runge-Kutta integration schemes.
 
     Encodes the coefficient structure for explicit Runge-Kutta methods in
@@ -50,20 +49,7 @@ class ButcherTableau:
     Consistency requires: $c_i = \sum_j a_{ij}$ and $\sum_i b_i = 1$.
     """
 
-    stages: int
-    """Number of stages $s$ in the method."""
-
-    a: tuple[tuple[int, ...]]
-    """Coefficient matrix $(a_{ij})$ as nested tuples."""
-
-    b: tuple[int, ...]
-    """Weight vector $(b_i)$ as tuple."""
-
-    c: tuple[int, ...]
-    """Node vector $(c_i)$ as tuple (computed from $a$)."""
-
-    @classmethod
-    def from_ab(cls, a, b):
+    def __init__(self, a, b):
         r"""Construct Butcher tableau from coefficient matrix and weights.
 
         Creates a ButcherTableau instance from the $a$ matrix and $b$ vector,
@@ -71,8 +57,8 @@ class ButcherTableau:
         validating consistency conditions.
 
         Args:
-            a: Coefficient matrix as list of lists, shape $(s, s)$.
-            b: Weight vector as list, length $s$.
+            a: Coefficient matrix or list of lists, shape $(s, s)$.
+            b: Weight vector or list, length $s$.
 
         Returns:
             ButcherTableau instance with computed node vector.
@@ -85,12 +71,12 @@ class ButcherTableau:
 
         Example:
             >>> # Second-order Crouch-Grossmann method
-            >>> cg2 = ButcherTableau.from_ab(
+            >>> cg2 = ButcherTableau(
             ...     a=[[0, 0], [1/2, 0]], b=[0, 1]
             ... )
         """
-        a = tuple(tuple(ai) for ai in a)
-        b = tuple(b)
+        a = tuple(tuple(float(aij) for aij in ai) for ai in a)
+        b = tuple(float(bi) for bi in b)
         c = tuple(sum(ai) for ai in a)
 
         assert all(len(ai) == len(c) for ai in a)
@@ -101,10 +87,13 @@ class ButcherTableau:
             for i in range(j + 1):
                 assert a[i][j] == 0, "only explicit methods supported"
 
-        return cls(stages=len(c), a=a, b=b, c=c)
+        self.stages = len(c)
+        self.a = nnx.static(a)
+        self.b = nnx.static(b)
+        self.c = nnx.static(c)
 
 
-EULER = ButcherTableau.from_ab(
+EULER = ButcherTableau(
     a=[[0]],
     b=[1],
 )
@@ -115,7 +104,7 @@ The simplest integration scheme: $y_{n+1} = y_n + h f(t_n, y_n)$.
 For Lie groups: $g_{n+1} = \exp(h A(t_n, g_n)) g_n$.
 """
 
-CG2 = ButcherTableau.from_ab(
+CG2 = ButcherTableau(
     a=[[0, 0], [1 / 2, 0]],
     b=[0, 1],
 )
@@ -131,7 +120,7 @@ Stages:
 Update: $g_{n+1} = \exp(h k_2) g_n$
 """
 
-CG3 = ButcherTableau.from_ab(
+CG3 = ButcherTableau(
     a=[[0, 0, 0], [3 / 4, 0, 0], [119 / 216, 17 / 108, 0]],
     b=[13 / 51, -2 / 3, 24 / 17],
 )
@@ -431,4 +420,5 @@ def _crouch_grossmann_rev(is_lie, tableau, vector_field, step_size, res, g):
     return (ts_bar, y_bar, *args_bar)
 
 
+_crouch_grossmann.defvjp(_crouch_grossmann_fwd, _crouch_grossmann_rev)
 _crouch_grossmann.defvjp(_crouch_grossmann_fwd, _crouch_grossmann_rev)

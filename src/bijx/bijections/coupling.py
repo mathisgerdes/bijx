@@ -667,7 +667,7 @@ class GeneralCouplingLayer(Bijection):
     ):
         self.embedding_net = embedding_net
         self.mask = mask
-        self.bijection_reconstructor = bijection_reconstructor
+        self.bijection_reconstructor = nnx.data(bijection_reconstructor)
         self.split = split
         self.bijection_event_rank = bijection_event_rank
 

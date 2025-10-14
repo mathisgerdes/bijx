@@ -69,9 +69,9 @@ class ContFlowDiffrax(Bijection):
         vf: nnx.Module,
         config: DiffraxConfig = DiffraxConfig(),
     ):
-        self.vf_graph, self.vf_variables, self.vf_meta = nnx.split(
-            vf, nnx.Variable, ...
-        )
+        self.vf_graph, vf_variables, vf_meta = nnx.split(vf, nnx.Variable, ...)
+        self.vf_variables = nnx.data(vf_variables)
+        self.vf_meta = nnx.data(vf_meta)
         self.config = config
         assert config.saveat == diffrax.SaveAt(t1=True), "saveat must be t1=True"
 

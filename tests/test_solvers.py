@@ -14,6 +14,7 @@ import numpy as np
 import bijx.lie as lie
 
 # Import components to test
+from bijx import cg
 from bijx.cg import CG2, CG3, EULER, crouch_grossmann
 from bijx.solvers import DiffraxConfig, odeint_rk4
 
@@ -62,7 +63,14 @@ class TestCrouchGrossmann:
             # Use fine time step for accuracy
             step_size = 0.01
             x_final = crouch_grossmann(
-                decay_vf, x0, args, t0, t1, step_size, False, tableau
+                decay_vf,
+                x0,
+                args,
+                t0,
+                t1,
+                step_size,
+                manifold_types=cg.Euclidean(),
+                tableau=tableau,
             )
 
             # Compare with exact solution
@@ -91,7 +99,16 @@ class TestCrouchGrossmann:
         t0, t1 = 0.0, 1.0
 
         for tableau in [EULER, CG2, CG3]:
-            y_final = crouch_grossmann(su2_vf, y0, args, t0, t1, 0.05, True, tableau)
+            y_final = crouch_grossmann(
+                su2_vf,
+                y0,
+                args,
+                t0,
+                t1,
+                0.05,
+                manifold_types=cg.Unitary(special=True),
+                tableau=tableau,
+            )
 
             # Exact solution
             y_exact = jax.scipy.linalg.expm(strength * (t1 - t0) * lie.SU2_GEN[2]) @ y0
@@ -128,7 +145,9 @@ class TestCrouchGrossmann:
         omega = 2.0
         args = {"omega": omega}
 
-        r_final = crouch_grossmann(so3_vf, r0, args, 0.0, 1.0, 0.1, True, CG3)
+        r_final = crouch_grossmann(
+            so3_vf, r0, args, 0.0, 1.0, 0.1, manifold_types=cg.Matrix(), tableau=CG3
+        )
 
         # Check orthogonality: R^T R = I
         np.testing.assert_allclose(r_final.T @ r_final, jnp.eye(3), atol=1e-12)
@@ -171,13 +190,20 @@ class TestCrouchGrossmann:
         # Initial state
         state0 = {"position": jnp.array([1.0, 2.0, 0.5]), "rotation": jnp.eye(3)}
 
-        # Geometry specification
-        is_lie = {"position": False, "rotation": True}
+        # Geometry specification - pytree of manifold types
+        manifold_types = {"position": cg.Euclidean(), "rotation": cg.Matrix()}
 
         args = {"damping": 0.5, "omega": 1.0}
 
         state_final = crouch_grossmann(
-            mixed_vf, state0, args, 0.0, 2.0, 0.1, is_lie, CG2
+            mixed_vf,
+            state0,
+            args,
+            0.0,
+            2.0,
+            0.1,
+            manifold_types=manifold_types,
+            tableau=CG2,
         )
 
         # Check Euclidean component decays exponentially
@@ -205,8 +231,8 @@ class TestCrouchGrossmann:
                 0.0,
                 1.0,
                 0.1,
-                True,
-                CG2,
+                manifold_types=cg.Unitary(special=True),
+                tableau=CG2,
             )
             # Simple loss: trace of final state
             return jnp.real(jnp.trace(y_final))
@@ -245,13 +271,34 @@ class TestCrouchGrossmann:
 
         for step_size in step_sizes:
             x_euler = crouch_grossmann(
-                oscillatory_growth_vf, x0, args, t0, t1, step_size, False, EULER
+                oscillatory_growth_vf,
+                x0,
+                args,
+                t0,
+                t1,
+                step_size,
+                manifold_types=cg.Euclidean(),
+                tableau=EULER,
             )
             x_cg2 = crouch_grossmann(
-                oscillatory_growth_vf, x0, args, t0, t1, step_size, False, CG2
+                oscillatory_growth_vf,
+                x0,
+                args,
+                t0,
+                t1,
+                step_size,
+                manifold_types=cg.Euclidean(),
+                tableau=CG2,
             )
             x_cg3 = crouch_grossmann(
-                oscillatory_growth_vf, x0, args, t0, t1, step_size, False, CG3
+                oscillatory_growth_vf,
+                x0,
+                args,
+                t0,
+                t1,
+                step_size,
+                manifold_types=cg.Euclidean(),
+                tableau=CG3,
             )
 
             errors_euler.append(abs(x_euler - x_exact))
@@ -368,8 +415,10 @@ class TestODESolvers:
         # RK4 solution
         y_rk4 = odeint_rk4(ode_fn, y0, 2.0, args, step_size=0.01)
 
-        # CG solution (with is_lie=False)
-        y_cg = crouch_grossmann(ode_fn, y0, args, 0.0, 2.0, 0.01, False, CG2)
+        # CG solution (with Euclidean manifold type)
+        y_cg = crouch_grossmann(
+            ode_fn, y0, args, 0.0, 2.0, 0.01, manifold_types=cg.Euclidean(), tableau=CG2
+        )
 
         # Should give similar results
         np.testing.assert_allclose(y_rk4, y_cg, rtol=1e-5)
@@ -395,9 +444,25 @@ class TestIntegrationConsistency:
         # Test different solvers
         y_rk4 = odeint_rk4(decay_ode, y0, t_final, args, step_size=0.01)
         y_cg_euler = crouch_grossmann(
-            decay_ode, y0, args, 0.0, t_final, 0.01, False, EULER
+            decay_ode,
+            y0,
+            args,
+            0.0,
+            t_final,
+            0.01,
+            manifold_types=cg.Euclidean(),
+            tableau=EULER,
         )
-        y_cg2 = crouch_grossmann(decay_ode, y0, args, 0.0, t_final, 0.01, False, CG2)
+        y_cg2 = crouch_grossmann(
+            decay_ode,
+            y0,
+            args,
+            0.0,
+            t_final,
+            0.01,
+            manifold_types=cg.Euclidean(),
+            tableau=CG2,
+        )
 
         # All should be reasonably close to exact solution
         np.testing.assert_allclose(y_rk4, y_exact, rtol=1e-4)
@@ -425,7 +490,9 @@ class TestNumericalStability:
         y0 = jnp.array([1.0])
 
         # Zero time interval should return initial state
-        y_final = crouch_grossmann(dummy_vf, y0, {}, 0.0, 0.0, 0.1, False, CG2)
+        y_final = crouch_grossmann(
+            dummy_vf, y0, {}, 0.0, 0.0, 0.1, manifold_types=cg.Euclidean(), tableau=CG2
+        )
         np.testing.assert_allclose(y_final, y0, atol=1e-15)
 
     def test_large_time_integration(self):
@@ -440,7 +507,14 @@ class TestNumericalStability:
 
         # Integrate for long time with CG (should preserve energy)
         y_final = crouch_grossmann(
-            stable_oscillator, y0, {}, 0.0, 10.0, 0.1, False, CG2
+            stable_oscillator,
+            y0,
+            {},
+            0.0,
+            10.0,
+            0.1,
+            manifold_types=cg.Euclidean(),
+            tableau=CG2,
         )
 
         # Check energy conservation: E = 0.5*(x^2 + p^2)
@@ -448,4 +522,6 @@ class TestNumericalStability:
         energy_final = 0.5 * jnp.sum(y_final**2)
 
         # Should conserve energy reasonably well
+        np.testing.assert_allclose(energy_final, energy_initial, rtol=1e-2)
+        np.testing.assert_allclose(energy_final, energy_initial, rtol=1e-2)
         np.testing.assert_allclose(energy_final, energy_initial, rtol=1e-2)

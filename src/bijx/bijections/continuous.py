@@ -264,20 +264,14 @@ class ContFlowCG(Bijection):
     Args:
         vf: Vector field function with signature
             ``(t, x, **kwargs) -> (dx/dt, d(log_density)/dt)``.
-        is_lie: Specification of which components are treated as matrix group elements.
         t_start: Integration start time.
         t_end: Integration end time.
         steps: Number of integration steps.
         tableau: Butcher tableau specifying the integration scheme.
 
-    Note:
-        The ``is_lie`` parameter determines which state components are treated
-        as matrix group elements for the geometric integration.
-        This should be a pytree of booleans, matching the same structure as the state.
-
     Example:
         >>> # Vector field for SU(N) gauge field evolution
-        >>> flow = ContFlowCG(SomeGaugeVF(), is_lie=True, tableau=cg.CG3)
+        >>> flow = ContFlowCG(SomeGaugeVF(), tableau=cg.CG3)
         >>> U_final, log_det = flow.forward(U, log_density)
     """
 
@@ -286,15 +280,15 @@ class ContFlowCG(Bijection):
         # (t, x, **kwargs) -> dx/dt, d(log_density)/dt
         vf: tp.Callable,
         # default to single gauge object
-        is_lie: tp.Any = True,
+        x_type: tp.Any = cg.Unitary(),
         *,
         t_start: float = 0,
         t_end: float = 1,
         steps: int = 20,
-        tableau: cg.ButcherTableau = cg.CG3,
+        tableau: cg.ButcherTableau = cg.CG2,
     ):
         self.vf = vf
-        self.is_lie = is_lie
+        self.x_type = x_type
         self.t_start = t_start
         self.t_end = t_end
         self.steps = steps
@@ -337,7 +331,6 @@ class ContFlowCG(Bijection):
             return dx_dt, dld_dt
 
         y0 = (x, log_density)
-        is_lie = (self.is_lie, False)
 
         y_final = cg.crouch_grossmann(
             vf,
@@ -346,7 +339,8 @@ class ContFlowCG(Bijection):
             t_start,
             t_end,
             step_size=dt,
-            is_lie=is_lie,
+            manifold_types=(self.x_type, cg.Euclidean()),
+            args_types=cg.Euclidean(),
             tableau=self.tableau,
         )
         return y_final

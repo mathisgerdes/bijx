@@ -42,6 +42,8 @@ class ConvNet(nnx.Module):
         hidden_channels: list[int] = [8, 8],
         activation: tp.Callable = nnx.leaky_relu,
         final_activation: tp.Callable = nnx.tanh,
+        final_kernel_init: tp.Callable = nnx.initializers.normal(),
+        final_bias_init: tp.Callable = nnx.initializers.zeros,
         padding: str = "CIRCULAR",
         *,
         rngs: nnx.Rngs,
@@ -60,10 +62,22 @@ class ConvNet(nnx.Module):
                     rngs=rngs,
                 )
                 for c_in, c_out in zip(
-                    [in_channels] + list(hidden_channels),
-                    list(hidden_channels) + [out_channels],
+                    [in_channels] + list(hidden_channels)[:-1],
+                    list(hidden_channels),
                 )
             ]
+        )
+
+        self.conv_layers.append(
+            nnx.Conv(
+                in_features=hidden_channels[-1],
+                out_features=out_channels,
+                kernel_size=kernel_size,
+                kernel_init=final_kernel_init,
+                bias_init=final_bias_init,
+                padding=padding,
+                rngs=rngs,
+            )
         )
 
     def __call__(self, x):

@@ -52,12 +52,25 @@ class TestShapeInfo:
         assert info.channel_axes == (-1,)
 
     def test_process_and_flatten(self):
-        info = ShapeInfo(event_dim=2, space_dim=2, channel_dim=0)
+        info = ShapeInfo(space_dim=2, channel_dim=0)
         x = jnp.zeros((4, 5, 6))
-        flat, sub = info.process_and_flatten(x)
+        flat, _, sub = info.process_and_flatten(x)
         assert flat.shape == (4, 30)
         assert sub.space_dim == 2
         assert sub.channel_dim == 0
+
+    def test_process_and_canonicalize(self):
+        info = ShapeInfo(space_dim=1, channel_dim=1)
+        x = jnp.zeros((2, 3, 4, 5))
+        canonical, batch_shape, sub = info.process_and_canonicalize(x)
+        assert canonical.shape == (
+            6,
+            4,
+            5,
+        )  # batch_size=6, space_shape=(4,), channel_size=5
+        assert batch_shape == (2, 3)
+        assert sub.space_dim == 1
+        assert sub.channel_dim == 1
 
 
 class TestESSandKL:

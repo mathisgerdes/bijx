@@ -39,6 +39,11 @@ class Transformed(Distribution):
     from the base distribution) and density evaluation (by inverse transforming
     and applying the change of variables formula).
 
+    Important: Assumes that the bijection does not change the shape/pytree structure
+    of the input in the `log_density` method. This is because it defaults to using
+    the given prior to determine the batch shape of the input. If this is not true,
+    this class can be extended with a manual implementation of `get_batch_shape`.
+
     Example:
         >>> prior = bijx.IndependentNormal(event_shape=(2,))
         >>> bijection = bijx.Sigmoid()
@@ -79,6 +84,20 @@ class Transformed(Distribution):
         x, log_density = self.bijection.forward(x, log_density, **kwargs)
         return x, log_density
 
+    def get_batch_shape(self, x: ftp.ArrayPytree) -> tuple[int, ...]:
+        """Extract batch dimensions from a sample.
+
+        This method defaults to using the prior's `get_batch_shape`
+        method to determine the batch shape.
+
+        Args:
+            x: A transformed sample.
+
+        Returns:
+            Tuple representing the batch shape of the sample.
+        """
+        return self.prior.get_batch_shape(x)
+
     def log_density(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
         """Evaluate log density of the transformed distribution.
 
@@ -93,7 +112,7 @@ class Transformed(Distribution):
         Returns:
             Log density values at the input points.
         """
-        log_density = jnp.zeros(self.prior.get_batch_shape(x))
+        log_density = jnp.zeros(self.get_batch_shape(x))
         x, delta = self.bijection.reverse(x, log_density)
         return self.prior.log_density(x, **kwargs) - delta
 
@@ -181,6 +200,9 @@ class BufferedSampler(Distribution):
         self.buffer_index.value += 1
 
         return draw  # (x, log_density)
+
+    def get_batch_shape(self, x: ftp.ArrayPytree) -> tuple[int, ...]:
+        return self.dist.get_batch_shape(x)
 
     def log_density(self, x: ftp.ArrayPytree, **kwargs) -> jax.Array:
         """Evaluate log density using the underlying distribution.

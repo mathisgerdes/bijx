@@ -63,7 +63,7 @@ class DiffraxConfig(nnx.Pytree):
     t_start: float = 0.0
     t_end: float = 1.0
     dt: float = 0.05
-    saveat: diffrax.SaveAt = diffrax.SaveAt(t1=True)
+    saveat: nnx.Data[diffrax.SaveAt] = diffrax.SaveAt(t1=True)
     stepsize_controller: diffrax.AbstractStepSizeController = diffrax.ConstantStepSize()
     adjoint: diffrax.AbstractAdjoint = diffrax.RecursiveCheckpointAdjoint()
     event: diffrax.Event | None = None

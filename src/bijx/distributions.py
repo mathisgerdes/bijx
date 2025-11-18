@@ -381,8 +381,8 @@ class MultivariateNormal(ArrayDistribution):
     @classmethod
     def given_cov(
         cls,
-        mean: jnp.ndarray,
-        cov: jnp.ndarray,
+        mean: ParamSpec,
+        cov: ParamSpec,
         *,
         rngs=None,
         var_cls=Const,
@@ -400,6 +400,8 @@ class MultivariateNormal(ArrayDistribution):
         Returns:
             MultivariateNormal instance.
         """
+        if not hasattr(cov, "shape"):
+            cov = _cov_init(rngs.params(), cov)
         cholesky = _cov_to_cholesky(cov)
         return cls(mean, cholesky, rngs=rngs, var_cls=var_cls, epsilon=epsilon)
 
@@ -555,6 +557,8 @@ class DiagonalNormal(ArrayDistribution):
             scales = jnp.sqrt(variances)
             if isinstance(variances, nnx.Variable):
                 scales = type(variances)(scales)
+        else:
+            scales = variances  # only shapes given, these are equal
         return DiagonalNormal(mean, scales, rngs=rngs, var_cls=var_cls, epsilon=epsilon)
 
     @property
@@ -623,7 +627,7 @@ class MixtureStack(Distribution):
 
         dist_graph, rng_state, dist_vars = nnx.split(distributions, nnx.RngState, ...)
         self.dist_graph = dist_graph
-        self.dist_vars = dist_vars
+        self.dist_vars = nnx.data(dist_vars)
 
         assert len(rng_state) == 0, "stack must not carry hidden rngs"
 
@@ -720,12 +724,15 @@ class GaussianMixture(Distribution):
     def get_batch_shape(self, x):
         return self.mixture.get_batch_shape(x)
 
+    @property
     def covs(self):
         return self.mixture.stack.cov
 
+    @property
     def means(self):
         return self.mixture.stack.mean
 
+    @property
     def weights(self):
         return self.mixture.weights_normalized
 

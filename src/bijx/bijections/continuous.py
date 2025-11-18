@@ -69,11 +69,11 @@ class ContFlowDiffrax(Bijection):
         vf: nnx.Module,
         config: DiffraxConfig = DiffraxConfig(),
     ):
-        self.vf_graph, self.vf_variables, self.vf_meta = nnx.split(
-            vf, nnx.Variable, ...
-        )
+        self.vf_graph, vf_variables, vf_meta = nnx.split(vf, nnx.Variable, ...)
+        self.vf_variables = nnx.data(vf_variables)
+        self.vf_meta = nnx.data(vf_meta)
         self.config = config
-        assert config.saveat == diffrax.SaveAt(t1=True), "saveat must be t1=True"
+        # assert config.saveat == diffrax.SaveAt(t1=True), "saveat must be t1=True"
 
     def _vf(self, t, state, args):
         """Vector field wrapper for diffrax integration."""
@@ -128,7 +128,7 @@ class ContFlowDiffrax(Bijection):
         this function. Use :meth:`solve_flow` directly for this.
         """
         sol = self.solve_flow(x, log_density, **kwargs)
-        return jax.tree.map(lambda x: x[0], sol.ys)
+        return jax.tree.map(lambda x: x[-1], sol.ys)
 
     def reverse(self, x, log_density, **kwargs):
         """Solve the ODE flow in reverse and return the final state.
@@ -146,7 +146,7 @@ class ContFlowDiffrax(Bijection):
             t_end=self.config.t_start,
             **kwargs,
         )
-        return jax.tree.map(lambda x: x[0], sol.ys)
+        return jax.tree.map(lambda x: x[-1], sol.ys)
 
 
 class ContFlowRK4(Bijection):
@@ -264,20 +264,14 @@ class ContFlowCG(Bijection):
     Args:
         vf: Vector field function with signature
             ``(t, x, **kwargs) -> (dx/dt, d(log_density)/dt)``.
-        is_lie: Specification of which components are treated as matrix group elements.
         t_start: Integration start time.
         t_end: Integration end time.
         steps: Number of integration steps.
         tableau: Butcher tableau specifying the integration scheme.
 
-    Note:
-        The ``is_lie`` parameter determines which state components are treated
-        as matrix group elements for the geometric integration.
-        This should be a pytree of booleans, matching the same structure as the state.
-
     Example:
         >>> # Vector field for SU(N) gauge field evolution
-        >>> flow = ContFlowCG(SomeGaugeVF(), is_lie=True, tableau=cg.CG3)
+        >>> flow = ContFlowCG(SomeGaugeVF(), tableau=cg.CG3)
         >>> U_final, log_det = flow.forward(U, log_density)
     """
 
@@ -286,15 +280,15 @@ class ContFlowCG(Bijection):
         # (t, x, **kwargs) -> dx/dt, d(log_density)/dt
         vf: tp.Callable,
         # default to single gauge object
-        is_lie: tp.Any = True,
+        x_type: tp.Any = cg.Unitary(),
         *,
         t_start: float = 0,
         t_end: float = 1,
         steps: int = 20,
-        tableau: cg.ButcherTableau = cg.CG3,
+        tableau: cg.ButcherTableau = cg.CG2,
     ):
         self.vf = vf
-        self.is_lie = is_lie
+        self.x_type = x_type
         self.t_start = t_start
         self.t_end = t_end
         self.steps = steps
@@ -337,7 +331,6 @@ class ContFlowCG(Bijection):
             return dx_dt, dld_dt
 
         y0 = (x, log_density)
-        is_lie = (self.is_lie, False)
 
         y_final = cg.crouch_grossmann(
             vf,
@@ -346,7 +339,8 @@ class ContFlowCG(Bijection):
             t_start,
             t_end,
             step_size=dt,
-            is_lie=is_lie,
+            manifold_types=(self.x_type, cg.Euclidean()),
+            args_types=cg.Euclidean(),
             tableau=self.tableau,
         )
         return y_final
@@ -387,7 +381,7 @@ def _ndim_jacobian(func, event_dim):
 
     @partial(jax.vmap, in_axes=(None, 0), out_axes=(None, -1))
     def _jvp(x, tang):
-        x_flat, _info = info.process_and_flatten(x)
+        x_flat, _, _info = info.process_and_flatten(x)
         _func = partial(func_flat, event_shape=_info.event_shape)
         v, jac = jax.jvp(_func, (x_flat,), (tang,))
         return v.reshape(v.shape[:-1] + _info.event_shape), jac

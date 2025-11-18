@@ -5,13 +5,14 @@ This module provides comprehensive utilities for working with Fourier transforms
 of real-valued fields based on the FFT implementation in JAX.
 """
 
+from dataclasses import dataclass, replace
 from enum import IntEnum
 from itertools import product
 
-import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import nnx
 
 from .utils import ShapeInfo
 
@@ -73,8 +74,8 @@ def fft_momenta(
     return np.moveaxis(ks, 0, -1)
 
 
-@flax.struct.dataclass
-class FourierMeta:
+@dataclass(frozen=True)
+class FourierMeta(nnx.Pytree):
     """Metadata for handling real FFT constraints and symmetries.
 
     Encapsulates all the bookkeeping needed to work with real-valued Fourier
@@ -101,16 +102,18 @@ class FourierMeta:
     """
 
     shape_info: ShapeInfo
-    mr: np.ndarray = flax.struct.field(pytree_node=False)
-    mi: np.ndarray = flax.struct.field(pytree_node=False)
-    copy_from: np.ndarray = flax.struct.field(pytree_node=False)
-    copy_to: np.ndarray = flax.struct.field(pytree_node=False)
-    ks_full: np.ndarray = flax.struct.field(pytree_node=False)
-    ks_reduced: np.ndarray = flax.struct.field(pytree_node=False)
-    unique_idc: np.ndarray = flax.struct.field(
-        pytree_node=False
-    )  # unique values of |k|
-    unique_unfold: np.ndarray = flax.struct.field(pytree_node=False)
+    mr: jax.Array
+    mi: jax.Array
+    copy_from: jax.Array
+    copy_to: jax.Array
+    ks_full: jax.Array
+    ks_reduced: jax.Array
+    unique_idc: jax.Array  # unique values of |k|
+    unique_unfold: jax.Array
+
+    def replace(self, **changes):
+        """Create new config with specified parameters replaced."""
+        return replace(self, **changes)
 
     @staticmethod
     def _get_fourier_info(real_shape):
@@ -234,8 +237,8 @@ class FFTRep(IntEnum):
     comp_real = 3  # 'independent real degrees of freedom'
 
 
-@flax.struct.dataclass
-class FourierData:
+@dataclass(frozen=True)
+class FourierData(nnx.Pytree):
     """Multi-representation container for Fourier data.
 
     Provides a unified interface for working with Fourier data in different
@@ -260,9 +263,13 @@ class FourierData:
         >>> fd_real = fd.to(FFTRep.comp_real)
     """
 
-    data: jax.Array
-    rep: FFTRep = flax.struct.field(pytree_node=False)
+    data: nnx.Data[jax.Array]
+    rep: FFTRep
     meta: FourierMeta
+
+    def replace(self, **changes):
+        """Create new config with specified parameters replaced."""
+        return replace(self, **changes)
 
     @classmethod
     def from_real(cls, x, real_shape, to: FFTRep | None = None, channel_dim=0):

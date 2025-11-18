@@ -15,15 +15,13 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
-from flax import nnx, struct
+from flax import nnx
 
 from ..utils import ParamSpec, ShapeInfo, default_wrap
 from .base import Bijection
 
 
-# not exported (can still be accessed as bijx.bijections.scalar...)
-@struct.dataclass
-class TransformedParameter:
+class TransformedParameter(nnx.Module):
     """Parameter wrapper with optional transformation function.
 
     Stores a raw parameter alongside an optional transformation function,
@@ -42,8 +40,9 @@ class TransformedParameter:
         Array(1., dtype=float64, weak_type=True)
     """
 
-    param: nnx.Variable
-    transform: Callable
+    def __init__(self, param: nnx.Variable, transform: Callable):
+        self.param = param
+        self.transform = transform
 
     @property
     def value(self):

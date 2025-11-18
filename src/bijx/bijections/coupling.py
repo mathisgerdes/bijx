@@ -22,15 +22,14 @@ Note:
 
 import functools
 import inspect
+from dataclasses import dataclass
 
-import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 from jax_autovmap import autovmap
 
-from ..utils import Const
 from .base import Bijection
 
 
@@ -73,11 +72,6 @@ class BinaryMask(Bijection):
         >>> # reconstructed == x
     """
 
-    masks: Const
-    primary_indices: Const
-    secondary_indices: Const
-    event_shape: tuple[int, ...]
-
     def __init__(
         self,
         primary_indices: tuple[np.ndarray, ...],
@@ -90,20 +84,20 @@ class BinaryMask(Bijection):
             masks = (mask, ~mask)
         if secondary_indices is None:
             secondary_indices = np.where(masks[1])
-        self.masks = Const(masks)
-        self.primary_indices = Const(primary_indices)
-        self.secondary_indices = Const(secondary_indices)
-        self.event_shape = event_shape
+        self.primary_indices = nnx.data(primary_indices)
+        self.event_shape = nnx.static(event_shape)
+        self.masks = nnx.data(masks)
+        self.secondary_indices = nnx.data(secondary_indices)
 
     @property
     def count_primary(self):
         """Number of elements in the primary (True) mask region."""
-        return self.primary_indices.value[0].size
+        return self.primary_indices[0].size
 
     @property
     def count_secondary(self):
         """Number of elements in the secondary (False) mask region."""
-        return self.secondary_indices.value[0].size
+        return self.secondary_indices[0].size
 
     @property
     def counts(self):
@@ -145,7 +139,7 @@ class BinaryMask(Bijection):
     @property
     def boolean_mask(self):
         """Primary boolean mask array."""
-        return self.masks.value[0]
+        return self.masks[0]
 
     def indices(
         self, extra_channel_dims: int = 0, batch_safe: bool = True, primary: bool = True
@@ -161,7 +155,7 @@ class BinaryMask(Bijection):
             Indexing tuple suitable for array subscripting.
         """
         ind = (...,) if batch_safe else ()
-        ind += self.primary_indices.value if primary else self.secondary_indices.value
+        ind += self.primary_indices if primary else self.secondary_indices
         ind += (np.s_[:],) * extra_channel_dims
         return ind
 
@@ -172,10 +166,10 @@ class BinaryMask(Bijection):
             New BinaryMask with primary and secondary regions swapped.
         """
         return self.__class__(
-            self.secondary_indices.value,
+            self.secondary_indices,
             self.event_shape,
-            masks=self.masks.value[::-1],
-            secondary_indices=self.primary_indices.value,
+            masks=self.masks[::-1],
+            secondary_indices=self.primary_indices,
         )
 
     def split(self, array, extra_channel_dims: int = 0, batch_safe: bool = True):
@@ -323,7 +317,7 @@ def checker_mask(shape, parity: bool):
     return BinaryMask.from_boolean_mask(mask.astype(bool))
 
 
-class ModuleReconstructor:
+class ModuleReconstructor(nnx.Pytree):
     """
     Parameter management utility for dynamically parameterizing modules.
 
@@ -341,20 +335,17 @@ class ModuleReconstructor:
         - Full nnx state, use `from_params`
     """
 
-    # params_treedef: Any  # static
-    # params_leaves: list[jax.core.ShapedArray]  # static
-    # unconditional: nnx.State  # array leaf
-    # graph: Any | None = None  # static
-
     def __init__(
-        self, module_or_state: nnx.State | nnx.Module, filter: nnx.Param = nnx.Param
+        self,
+        module_or_state: nnx.State | nnx.Module,
+        filter: nnx.Param = nnx.Param,
     ):
         if isinstance(module_or_state, nnx.State):
             self.graph = None
             state = module_or_state
         else:
             graph, state = nnx.split(module_or_state)
-            self.graph = graph
+            self.graph = nnx.static(graph)
 
         params, unconditional = nnx.split_state(state, filter, ...)
 
@@ -362,21 +353,21 @@ class ModuleReconstructor:
 
         params_leaves, params_treedef = jax.tree.flatten(params)
 
-        self.params_treedef = params_treedef
-        self.params_leaves = params_leaves
-        self.unconditional = unconditional
+        self.params_treedef = nnx.static(params_treedef)
+        self.params_leaves = nnx.static(params_leaves)
+        self.unconditional = nnx.data(unconditional)
 
-    def _tree_flatten(self):
-        children = (self.unconditional,)
-        aux_data = (self.params_treedef, self.params_leaves, self.graph)
-        return children, aux_data
+    # def _tree_flatten(self):
+    #     children = (self.unconditional,)
+    #     aux_data = (self.params_treedef, self.params_leaves, self.graph)
+    #     return children, aux_data
 
-    @classmethod
-    def _tree_unflatten(cls, aux_data, children):
-        self = object.__new__(cls)
-        self.params_treedef, self.params_leaves, self.graph = aux_data
-        (self.unconditional,) = children
-        return self
+    # @classmethod
+    # def _tree_unflatten(cls, aux_data, children):
+    #     self = object.__new__(cls)
+    #     self.params_treedef, self.params_leaves, self.graph = aux_data
+    #     (self.unconditional,) = children
+    #     return self
 
     @property
     def params(self):
@@ -490,15 +481,15 @@ class ModuleReconstructor:
         return f"ModuleReconstructor:{state_or_module}"
 
 
-jax.tree_util.register_pytree_node(
-    ModuleReconstructor,
-    ModuleReconstructor._tree_flatten,
-    ModuleReconstructor._tree_unflatten,
-)
+# jax.tree_util.register_pytree_node(
+#     ModuleReconstructor,
+#     ModuleReconstructor._tree_flatten,
+#     ModuleReconstructor._tree_unflatten,
+# )
 
 
-@flax.struct.dataclass
-class AutoVmapReconstructor:
+@dataclass(frozen=True)
+class AutoVmapReconstructor(nnx.Pytree):
     r"""Automatic vectorization for module reconstruction with batched parameters.
 
     This class provides a solution for bijections that do not natively support
@@ -539,8 +530,8 @@ class AutoVmapReconstructor:
     """
 
     reconstructor: ModuleReconstructor
-    params: nnx.State | dict | list[jax.Array] | jax.Array
-    params_rank: int | dict = 1
+    params: nnx.Data[nnx.State | dict | list[jax.Array] | jax.Array]
+    params_rank: nnx.Data[int | dict] = 1
 
     def __call__(self, fn_name, *args, input_ranks: tuple[int, ...] = (0, 0), **kwargs):
 
@@ -667,7 +658,7 @@ class GeneralCouplingLayer(Bijection):
     ):
         self.embedding_net = embedding_net
         self.mask = mask
-        self.bijection_reconstructor = bijection_reconstructor
+        self.bijection_reconstructor = nnx.data(bijection_reconstructor)
         self.split = split
         self.bijection_event_rank = bijection_event_rank
 

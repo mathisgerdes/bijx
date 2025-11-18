@@ -381,13 +381,30 @@ class ShapeInfo:
             x: Input array with batch and event dimensions.
 
         Returns:
-            Tuple of (flattened_array, shape_info) where event dimensions
-            are flattened into a single dimension.
+            Tuple of (flattened_array, batch_shape, shape_info) where event dimensions
+            are flattened into a single dimension and batch shape is preserved.
         """
         batched_shape = jnp.shape(x)
         batch_shape, info = self.process_event(batched_shape)
 
-        return jnp.reshape(x, batch_shape + (-1,)), info
+        return jnp.reshape(x, batch_shape + (-1,)), batch_shape, info
+
+    def process_and_canonicalize(self, x: jax.Array):
+        """Process array and canonicalize event dimensions to (batch, *space, channel).
+
+        Args:
+            x: Input array with batch and event dimensions.
+
+        Returns:
+            Tuple of (canonicalized_array, batch_shape, shape_info)
+            where event dimensions are canonicalized into a single batch and single
+            channel dimension, preserving the space dimensions.
+        """
+        batched_shape = jnp.shape(x)
+        batch_shape, info = self.process_event(batched_shape)
+        batch_size = np.prod(batch_shape, dtype=int)
+        canonical = jnp.reshape(x, (batch_size, *info.space_shape, info.channel_size))
+        return canonical, batch_shape, info
 
     @property
     def event_axes(self) -> tuple[int, ...]:

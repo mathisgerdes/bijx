@@ -20,15 +20,15 @@ This ensures $g_{n+1} \in G$ whenever $g_n \in G$.
 
 from functools import partial, reduce
 
-import flax.struct
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import nnx
 from jax import core, custom_derivatives
+from jax_autovmap import autovmap
 
 
-@flax.struct.dataclass
-class ButcherTableau:
+class ButcherTableau(nnx.Pytree):
     r"""Butcher tableau defining coefficients for Runge-Kutta integration schemes.
 
     Encodes the coefficient structure for explicit Runge-Kutta methods in
@@ -50,20 +50,7 @@ class ButcherTableau:
     Consistency requires: $c_i = \sum_j a_{ij}$ and $\sum_i b_i = 1$.
     """
 
-    stages: int
-    """Number of stages $s$ in the method."""
-
-    a: tuple[tuple[int, ...]]
-    """Coefficient matrix $(a_{ij})$ as nested tuples."""
-
-    b: tuple[int, ...]
-    """Weight vector $(b_i)$ as tuple."""
-
-    c: tuple[int, ...]
-    """Node vector $(c_i)$ as tuple (computed from $a$)."""
-
-    @classmethod
-    def from_ab(cls, a, b):
+    def __init__(self, a, b):
         r"""Construct Butcher tableau from coefficient matrix and weights.
 
         Creates a ButcherTableau instance from the $a$ matrix and $b$ vector,
@@ -71,8 +58,8 @@ class ButcherTableau:
         validating consistency conditions.
 
         Args:
-            a: Coefficient matrix as list of lists, shape $(s, s)$.
-            b: Weight vector as list, length $s$.
+            a: Coefficient matrix or list of lists, shape $(s, s)$.
+            b: Weight vector or list, length $s$.
 
         Returns:
             ButcherTableau instance with computed node vector.
@@ -85,12 +72,12 @@ class ButcherTableau:
 
         Example:
             >>> # Second-order Crouch-Grossmann method
-            >>> cg2 = ButcherTableau.from_ab(
+            >>> cg2 = ButcherTableau(
             ...     a=[[0, 0], [1/2, 0]], b=[0, 1]
             ... )
         """
-        a = tuple(tuple(ai) for ai in a)
-        b = tuple(b)
+        a = tuple(tuple(float(aij) for aij in ai) for ai in a)
+        b = tuple(float(bi) for bi in b)
         c = tuple(sum(ai) for ai in a)
 
         assert all(len(ai) == len(c) for ai in a)
@@ -101,10 +88,13 @@ class ButcherTableau:
             for i in range(j + 1):
                 assert a[i][j] == 0, "only explicit methods supported"
 
-        return cls(stages=len(c), a=a, b=b, c=c)
+        self.stages = len(c)
+        self.a = nnx.static(a)
+        self.b = nnx.static(b)
+        self.c = nnx.static(c)
 
 
-EULER = ButcherTableau.from_ab(
+EULER = ButcherTableau(
     a=[[0]],
     b=[1],
 )
@@ -115,7 +105,7 @@ The simplest integration scheme: $y_{n+1} = y_n + h f(t_n, y_n)$.
 For Lie groups: $g_{n+1} = \exp(h A(t_n, g_n)) g_n$.
 """
 
-CG2 = ButcherTableau.from_ab(
+CG2 = ButcherTableau(
     a=[[0, 0], [1 / 2, 0]],
     b=[0, 1],
 )
@@ -131,78 +121,342 @@ Stages:
 Update: $g_{n+1} = \exp(h k_2) g_n$
 """
 
-CG3 = ButcherTableau.from_ab(
+CG3 = ButcherTableau(
     a=[[0, 0, 0], [3 / 4, 0, 0], [119 / 216, 17 / 108, 0]],
     b=[13 / 51, -2 / 3, 24 / 17],
 )
 r"""Third-order Crouch-Grossmann method (3rd-order, 3 stages)."""
 
 
-def transport(vect, z, inverse=False):
-    r"""Transport Lie algebra element to tangent space at group element.
+class ManifoldType(nnx.Pytree):
+    r"""Base class defining manifold structure and operations for ODE integration.
 
-    Performs parallel transport of a Lie algebra element (tangent vector
-    at identity) to the tangent space at an arbitrary group element.
+    This abstract class specifies how to perform integration steps on different
+    types of manifolds (Euclidean spaces, Lie groups, etc.). Subclasses define
+    the specific operations needed for their manifold structure.
 
-    For right-invariant vector fields: $X_g = X_e \cdot g$
-    For left-invariant vector fields: $X_g = g \cdot X_e$
+    Key operations:
+        - reduce: Accumulate increments using manifold-appropriate operations
+        - post_stage/post_step: Optional projection back to manifold after updates
+        - Adjoint methods: Handle cotangent space operations for differentiation
 
-    Here, we choose the convention of right-invariant vector fields.
-
-    The transport maps vectors from $T_e G$ (Lie algebra) to $T_g G$.
-
-    Args:
-        vect: Lie algebra element (tangent vector at identity).
-        z: Group element providing the transport destination.
-        inverse: If True, transport from $T_g G$ back to $T_e G$.
-
-    Returns:
-        Transported tangent vector at the specified group element.
-
-    Example:
-        >>> # Transport SU(2) generator to arbitrary group element
-        >>> X = bijx.lie.SU2_GEN[0]  # Generator at identity
-        >>> g = bijx.lie.sample_haar(rng, n=2)  # Arbitrary SU(2) element
-        >>> X_g = transport(X, g)  # Tangent vector at g
-        >>> X_g.shape
-        (2, 2)
+    Common subclasses:
+        - Euclidean: Standard vector spaces with addition
+        - Matrix: Matrix Lie groups using exponential map
+        - Unitary: Unitary groups with optional projection
     """
-    if inverse:
-        z_inv = z.T.conj()
-        return jnp.einsum("...ij,...jk->...ik", vect, z_inv)
-    return jnp.einsum("...ij,...jk->...ik", vect, z)
+
+    def derivative_type(self):
+        """Return the ManifoldType for tangent/cotangent spaces.
+
+        For most manifolds, derivatives live in a different space than the
+        base manifold. This method specifies the manifold type for these spaces.
+        """
+        raise NotImplementedError()
+
+    def reduce(self, x, *deltas):
+        """Accumulate increments on the manifold.
+
+        Args:
+            x: Base point on manifold.
+            *deltas: Sequence of increments to accumulate.
+
+        Returns:
+            Updated point after accumulating all increments.
+        """
+        return sum(deltas, start=x)
+
+    def post_stage(self, x):
+        """Project state back to manifold after each internal stage.
+
+        Args:
+            x: State after stage update.
+
+        Returns:
+            Projected state (identity by default).
+        """
+        return x
+
+    def post_step(self, x):
+        """Project state back to manifold after each full integration step.
+
+        Args:
+            x: State after full step.
+
+        Returns:
+            Projected state (identity by default).
+        """
+        return x
+
+    def post_adjoint_vjp(self, x, adj_vec, v, adj):
+        """Adjust adjoint gradient after VJP computation.
+
+        Args:
+            x: Current state.
+            adj_vec: Adjoint vector from VJP.
+            v: Vector field value.
+            adj: Current adjoint state.
+
+        Returns:
+            Adjusted adjoint vector.
+        """
+        return adj_vec
+
+    def pre_adjoint_vjp(self, x, v):
+        """Transform vector field before adjoint VJP computation.
+
+        Args:
+            x: Current state.
+            v: Vector field value at identity/origin.
+
+        Returns:
+            Transformed vector (identity by default).
+        """
+        return v
+
+    def project_adjoint(self, x, adj):
+        """Project adjoint state to cotangent space.
+
+        Args:
+            x: Current state.
+            adj: Adjoint state.
+
+        Returns:
+            Projected adjoint (identity by default).
+        """
+        return adj
 
 
-def stage_reduce(y0, is_lie, *deltas):
-    r"""Accumulate stage increments using appropriate group operation.
+class Euclidean(ManifoldType):
+    """Euclidean space with standard vector addition.
 
-    Combines multiple increments using either vector addition (for Euclidean
-    spaces) or matrix exponential composition (for Lie groups).
+    Use for standard ODEs in flat space where derivatives are tangent vectors
+    and integration uses standard addition. This is the default for most
+    non-geometric problems.
+    """
 
-    For Euclidean space: $y = y_0 + \sum_i \delta_i$
-    For Lie groups: $g = \left(\prod_i \exp(\delta_i)\right) g_0$
+    def derivative_type(self):
+        return Euclidean()
 
-    The Lie group version ensures the result remains on the manifold
-    by using the exponential map and group multiplication.
+
+def _matrix_reduce(x, v):
+    """Reduce matrix Lie group element by exponential map and multiplication.
+
+    Computes exp(v) @ x for matrix Lie groups, where v is a Lie algebra element.
 
     Args:
-        y0: Initial state (group element or vector).
-        is_lie: Boolean indicating whether to use Lie group operations.
-        *deltas: Sequence of increments to accumulate.
+        x: Matrix group element.
+        v: Lie algebra element (tangent vector at identity).
 
     Returns:
-        Updated state after accumulating all increments.
+        exp(v) @ x, the group element after applying the exponential update.
     """
     # Note: Could pass max_squarings argument to expm
     expm = jax.scipy.linalg.expm
-
-    if not is_lie:
-        return y0 + sum(deltas)
-
-    return reduce(lambda y, v: jnp.einsum("...ij,...jk->...ik", expm(v), y), deltas, y0)
+    return jnp.einsum("...ij,...jk->...ik", expm(v), x)
 
 
-def cg_stage(y0, vect, is_lie, ai, step_size):
+class Matrix(ManifoldType):
+    """Matrix Lie groups using exponential map integration.
+
+    Handles integration on matrix Lie groups (SO(N), SU(N), etc.) using the
+    exponential map to ensure solutions remain on the manifold.
+
+    Args:
+        right_invariant: Use right-invariant vector fields (X_g = X_e @ g).
+            Left-invariant not yet implemented.
+        transport_adjoint: If True, keep adjoint in dual tangent space at
+            identity. If False, adjoint lives in ambient cotangent space.
+    """
+
+    def __init__(self, right_invariant=True, transport_adjoint=False):
+        self.right_invariant = right_invariant
+        if not right_invariant:
+            raise NotImplementedError()
+
+        # if true, keep adjoint in dual tangent space at identity
+        self.transport_adjoint = transport_adjoint
+
+    def derivative_type(self):
+        return MatrixDeriv(right_invariant=self.right_invariant)
+
+    def reduce(self, x, *deltas):
+        return reduce(_matrix_reduce, deltas, x)
+
+    def transport(self, x, v):
+        r"""Transport Lie algebra element to tangent space at group element.
+
+        Performs parallel transport of a Lie algebra element (tangent vector
+        at identity) to the tangent space at an arbitrary group element.
+
+        For right-invariant vector fields: $X_g = X_e \cdot g$
+        For left-invariant vector fields: $X_g = g \cdot X_e$
+
+        This implementation uses the right-invariant convention.
+        The transport maps vectors from $T_e G$ (Lie algebra) to $T_g G$.
+
+        Args:
+            x: Group element.
+            v: Lie algebra element (vector at identity).
+
+        Returns:
+            Transported vector at x.
+        """
+        if self.right_invariant:
+            return jnp.einsum("...ij,...jk->...ik", v, x)
+        else:
+            return jnp.einsum("...ij,...jk->...ik", x, v)
+
+    def pre_adjoint_vjp(self, x, v):
+        # if not transporting adjoint, need to transport v to "true" tangent space
+        if self.transport_adjoint:
+            return v
+        return self.transport(x, v)
+
+    def project_adjoint(self, x, adj):
+        if self.transport_adjoint:
+            return jnp.einsum("...ij,...kj->...ik", adj, x)
+        return adj
+
+    def post_adjoint_vjp(self, x, adj_vec, v, adj):
+        # if transporting adjoint, add term to keep at origin
+        if self.transport_adjoint:
+            out = jnp.einsum("...ij,...kj->...ik", adj_vec, x)
+            out += jnp.einsum("...ij,...kj->...ik", adj, v)
+            out -= jnp.einsum("...ji,...jk->...ik", v, adj)
+            return out
+        return adj_vec
+
+
+class MatrixDeriv(ManifoldType):
+    """Tangent and cotangent spaces for matrix Lie groups.
+
+    Used for both tangent and cotangent spaces since the projections
+    for groups like SU(N) are the same in both cases.
+
+    Args:
+        right_invariant: Matches parent Matrix convention.
+    """
+
+    def __init__(self, right_invariant=True):
+        self.right_invariant = right_invariant
+
+    def derivative_type(self):
+        return self
+
+
+class UnitaryDeriv(ManifoldType):
+    """Tangent/cotangent spaces for unitary groups with Lie algebra projection.
+
+    Projects vectors to the Lie algebra (anti-Hermitian matrices for U(N),
+    traceless anti-Hermitian for SU(N)) at each stage or step.
+
+    Args:
+        project_stage: Project to Lie algebra after each internal stage.
+        project_step: Project to Lie algebra after each full step.
+        special: If True, enforce traceless condition (for SU(N)).
+    """
+
+    def __init__(
+        self,
+        project_stage=False,
+        project_step=False,
+        special=True,
+    ):
+        self.project_stage = project_stage
+        # avoid redundant projection
+        self.project_step = project_step and not project_stage
+        self.special = special
+
+    def derivative_type(self):
+        return self
+
+    @autovmap(x=2)
+    def project(self, x):
+        if self.special:
+            trace = jnp.linalg.trace(x)
+            x = x - trace / x.shape[-1]
+        x = (x - x.mT.conj()) / 2
+        return x
+
+    def post_stage(self, x):
+        if self.project_stage:
+            return self.project(x)
+        return x
+
+    def post_step(self, x):
+        if self.project_step:
+            return self.project(x)
+        return x
+
+
+class Unitary(Matrix):
+    """Unitary groups U(N) or SU(N) with optional projection to manifold.
+
+    Extends Matrix with projection operations that enforce unitarity constraints
+    using polar decomposition after integration steps.
+
+    Args:
+        right_invariant: Use right-invariant vector fields.
+        transport_adjoint: Keep adjoint in tangent space at identity.
+        project_step: Project back to unitary manifold after each full step.
+        project_stage: Project back to unitary manifold after each internal stage.
+        special: If True, work with SU(N) (special unitary, det=1).
+        derivative: ManifoldType for tangent/cotangent spaces (default: UnitaryDeriv).
+    """
+
+    def __init__(
+        self,
+        right_invariant=True,
+        transport_adjoint=False,
+        project_step=False,
+        project_stage=False,
+        special=True,
+        derivative=UnitaryDeriv(),
+    ):
+        super().__init__(right_invariant, transport_adjoint)
+        self.project_stage = project_stage
+        self.project_step = project_step and not project_stage
+        self.special = special
+        self._derivative = derivative
+
+        if getattr(derivative, "project_step", False) or getattr(
+            derivative, "project_stage", False
+        ):
+            assert (
+                self.transport_adjoint
+            ), "adjoint projection not implemented for ambient space adjoint"
+
+    def derivative_type(self):
+        return self._derivative
+
+    @autovmap(m=2)
+    def project(self, m):
+        # Polar decomposition via SVD: m = U S V^H
+        u, _, vh = jnp.linalg.svd(m)
+        # Construct unitary part of polar decomposition
+        u = u @ vh
+
+        if self.special:
+            # Normalize to make determinant exactly 1
+            det_u = jnp.linalg.det(u)
+            det_root = det_u ** (1 / m.shape[-1])
+            u = u / det_root
+
+        return u
+
+    def post_stage(self, x):
+        if self.project_stage:
+            return self.project(x)
+        return x
+
+    def post_step(self, x):
+        if self.project_step:
+            return self.project(x)
+        return x
+
+
+def cg_stage(y0, vect, manifold_types, ai, step_size):
     r"""Compute intermediate state for Crouch-Grossmann stage.
 
     Combines previous stage vectors according
@@ -216,7 +470,6 @@ def cg_stage(y0, vect, is_lie, ai, step_size):
     Args:
         y0: Initial state for the current step.
         vect: List of stage vectors from previous stages.
-        is_lie: Boolean tree indicating which components use Lie group operations.
         ai: Row of Butcher tableau coefficients for current stage.
         step_size: Integration step size $h$.
 
@@ -232,19 +485,25 @@ def cg_stage(y0, vect, is_lie, ai, step_size):
 
     if len(deltas) == 0:
         return y0
-    return jax.tree.map(stage_reduce, y0, is_lie, *deltas)
+    return jax.tree.map(
+        lambda state, mtype, *deltas: mtype.reduce(state, *deltas),
+        y0,
+        manifold_types,
+        *deltas,
+    )
 
 
-def crouch_grossmann_step(is_lie, tableau, vector_field, step_size, t, y0):
+def crouch_grossmann_step(manifold_types, tableau, vector_field, step_size, t, y0):
     r"""Execute single step of Crouch-Grossmann integration method.
 
     Performs one integration step using the specified Butcher tableau,
     computing all intermediate stages and the final update.
 
     Args:
-        is_lie: Pytree of booleans indicating Lie group vs Euclidean components.
+        manifold_types: Pytree of ManifoldType instances defining manifold structure.
         tableau: ButcherTableau defining the integration method.
-        vector_field: Function $(t, g) \mapsto A$ where $A$ is in the Lie algebra.
+        vector_field: Function $(t, g) \mapsto A$ where $A$ is in the Lie algebra
+            (for Lie groups) or tangent vector (for Euclidean).
         step_size: Integration step size $h$.
         t: Current time.
         y0: Current state (group element or vector).
@@ -263,14 +522,24 @@ def crouch_grossmann_step(is_lie, tableau, vector_field, step_size, t, y0):
         # intermediate time for stage i
         ti = t + step_size * tableau.c[i]
         # intermediate state
-        intermediate = cg_stage(y0, vectors, is_lie, ai, step_size)
+        intermediate = cg_stage(y0, vectors, manifold_types, ai, step_size)
         # evaluate vector field
         vectors[i] = vector_field(ti, intermediate)
 
-    return cg_stage(y0, vectors, is_lie, tableau.b, step_size)
+    return cg_stage(y0, vectors, manifold_types, tableau.b, step_size)
 
 
-def crouch_grossmann(vector_field, y0, args, t0, t1, step_size, is_lie, tableau=EULER):
+def crouch_grossmann(
+    vector_field,
+    y0,
+    args,
+    t0,
+    t1,
+    step_size,
+    manifold_types=None,
+    args_types=None,
+    tableau=EULER,
+):
     r"""Integrate ODE using Crouch-Grossmann method with custom differentiation.
 
     Solves: $\dot{g} = f(t, g, \text{args})$ from $t_0$ to $t_1$
@@ -280,14 +549,18 @@ def crouch_grossmann(vector_field, y0, args, t0, t1, step_size, is_lie, tableau=
 
     Args:
         vector_field: Function $(t, g, \text{args}) \mapsto A$ where $A$ is
-            in the Lie algebra for Lie group components.
+            in the Lie algebra for Lie group components, or tangent vector
+            for Euclidean components.
         y0: Initial condition (group element or vector).
         args: Additional parameters passed to vector_field.
         t0: Initial time.
         t1: Final time.
         step_size: Integration step size (positive for forward integration).
-        is_lie: Boolean tree indicating which components use Lie group operations.
-        tableau: ButcherTableau defining the integration method (default: Euler).
+        manifold_types: ManifoldType or pytree of ManifoldTypes specifying the
+            manifold structure of y0. Defaults to Unitary().
+        args_types: ManifoldType or pytree of ManifoldTypes for args.
+            Defaults to Euclidean().
+        tableau: ButcherTableau defining the integration method (default: EULER).
 
     Returns:
         Solution at time $t_1$.
@@ -300,25 +573,39 @@ def crouch_grossmann(vector_field, y0, args, t0, t1, step_size, is_lie, tableau=
         >>> R0 = jnp.eye(3)  # Initial orientation
         >>> omega = jnp.array([1.0, 0.0, 0.0])  # Rotation about x-axis
         >>> R_final = crouch_grossmann(
-        ...     rigid_body_eqs, R0, omega, 0.0, 1.0, 0.01, True, CG2
+        ...     rigid_body_eqs, R0, omega, 0.0, 1.0, 0.01,
+        ...     manifold_types=Matrix(), args_types=Euclidean(), tableau=CG2
         ... )
 
     Important:
         The vector field must return values in the Lie algebra for Lie group
         components, enabling the exponential map to produce valid group elements.
     """
+    manifold_types = Unitary() if manifold_types is None else manifold_types
+    args_types = Euclidean() if args_types is None else args_types
+
     for arg in jax.tree_util.tree_leaves(args):
         if not isinstance(arg, core.Tracer) and not core.valid_jaxtype(arg):
             raise TypeError(
                 f"The contents of args must be arrays or scalars, but got {arg}."
             )
 
+    # make sure both types are matching pytrees
+    if isinstance(manifold_types, ManifoldType):
+        manifold_types = jax.tree.map(lambda _: manifold_types, y0)
+    if isinstance(args_types, ManifoldType):
+        args_types = jax.tree.map(lambda _: args_types, args)
+
     ts = jnp.array([t0, t1], dtype=float)
     converted, consts = custom_derivatives.closure_convert(
         vector_field, ts[0], y0, args
     )
+
+    consts_types = jax.tree.map(lambda _: Euclidean(), consts)
+    args_types = (args_types, *consts_types)
+
     return _crouch_grossmann(
-        is_lie, tableau, converted, step_size, ts, y0, args, *consts
+        manifold_types, args_types, tableau, converted, step_size, ts, y0, args, *consts
     )
 
 
@@ -330,8 +617,10 @@ def _bounded_next_time(cur_t, step_size, t_end):
     )
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3))
-def _crouch_grossmann(is_lie, tableau, vector_field, step_size, ts, y0, *args):
+@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3, 4))
+def _crouch_grossmann(
+    manifold_types, args_types, tableau, vector_field, step_size, ts, y0, *args
+):
     r"""Internal Crouch-Grossmann integrator with custom reverse-mode AD.
 
     The custom VJP implements the adjoint method for ODEs, integrating
@@ -341,7 +630,7 @@ def _crouch_grossmann(is_lie, tableau, vector_field, step_size, ts, y0, *args):
     def func_(t, y):
         return vector_field(t, y, *args)
 
-    step = partial(crouch_grossmann_step, is_lie, tableau, func_)
+    step = partial(crouch_grossmann_step, manifold_types, tableau, func_)
 
     def cond_fun(carry):
         """Check if integration endpoint has been reached."""
@@ -361,19 +650,19 @@ def _crouch_grossmann(is_lie, tableau, vector_field, step_size, ts, y0, *args):
     return y1
 
 
-def _crouch_grossmann_fwd(is_lie, tableau, vector_field, step_size, ts, y0, *args):
+def _crouch_grossmann_fwd(
+    manifold_types, args_types, tableau, vector_field, step_size, ts, y0, *args
+):
     """Forward pass for custom differentiation."""
-    y1 = _crouch_grossmann(is_lie, tableau, vector_field, step_size, ts, y0, *args)
+    y1 = _crouch_grossmann(
+        manifold_types, args_types, tableau, vector_field, step_size, ts, y0, *args
+    )
     return y1, (ts, y1, args)
 
 
-def _tree_fill(pytree, val):
-    """Fill PyTree structure with constant value."""
-    leaves, tree = jax.tree_util.tree_flatten(pytree)
-    return tree.unflatten([val] * len(leaves))
-
-
-def _crouch_grossmann_rev(is_lie, tableau, vector_field, step_size, res, g):
+def _crouch_grossmann_rev(
+    manifold_types, args_types, tableau, vector_field, step_size, res, g
+):
     r"""Reverse-mode differentiation rule for Crouch-Grossmann integration.
 
     Note:
@@ -382,12 +671,17 @@ def _crouch_grossmann_rev(is_lie, tableau, vector_field, step_size, res, g):
     """
     ts, y1, args = res
 
+    g = jax.tree.map(
+        lambda y, adj, mtype: mtype.project_adjoint(y, adj),
+        y1,
+        g,
+        manifold_types,
+    )
+
     def _aux(t, y, args):
         vect0 = vector_field(t, y, *args)
-        # need to take gradient of actual tangent vector in real space
-        # below, so transport vect0 to y for all values of is_lie type.
         vect = jax.tree.map(
-            lambda v, y, lie: transport(v, y) if lie else v, vect0, y, is_lie
+            lambda v, y, mtype: mtype.pre_adjoint_vjp(y, v), vect0, y, manifold_types
         )
         return vect, vect0
 
@@ -397,18 +691,25 @@ def _crouch_grossmann_rev(is_lie, tableau, vector_field, step_size, res, g):
         _, vjp, vect = jax.vjp(_aux, t, y, args, has_aux=True)
         t_bar, y_bar, args_bar = jax.tree.map(jnp.negative, vjp(adj))
 
+        y_bar = jax.tree.map(
+            lambda y_bar, y, v, adj, mtype: mtype.post_adjoint_vjp(y, y_bar, v, adj),
+            y_bar,
+            y,
+            vect,
+            adj,
+            manifold_types,
+        )
+
         return vect, y_bar, t_bar, args_bar
 
     # effect of moving measurement time
-    # need true tangent vectors in embedding space for dot product here
-    # (otherwise need more general contraction between vector and cotangent g)
     t_bar = sum(
         map(
-            lambda lie, v, vbar, y: jnp.sum((transport(v, y) if lie else v) * vbar),
-            jax.tree.leaves(is_lie),
+            lambda v, adj, y, mtype: jnp.sum(mtype.pre_adjoint_vjp(y, v) * adj),
             jax.tree.leaves(vector_field(ts[1], y1, *args)),
             jax.tree.leaves(g),
             jax.tree.leaves(y1),
+            jax.tree.structure(y1).flatten_up_to(manifold_types),
         )
     )
 
@@ -417,14 +718,22 @@ def _crouch_grossmann_rev(is_lie, tableau, vector_field, step_size, res, g):
     # state = (y, adjoint_state, grad_t, grad_args)
     state = (y1, g, t0_bar, jax.tree.map(jnp.zeros_like, args))
 
-    # NOTE:
-    # _tree_fill(is_lie, False) means we treat the adjoint state as simply a
-    # Euclidean object in the ambient space; this may be improved in the future
-    # to reduce error, since actually it is restricted to the cotangent space.
-    aux_is_lie = (is_lie, _tree_fill(is_lie, False), False, _tree_fill(args, False))
+    state_types = (
+        manifold_types,
+        jax.tree.map(lambda _, mtype: mtype.derivative_type(), y1, manifold_types),
+        Euclidean(),
+        jax.tree.map(lambda _, mtype: mtype.derivative_type(), args, args_types),
+    )
 
     _, y_bar, t0_bar, args_bar = _crouch_grossmann(
-        aux_is_lie, tableau, augmented_ode, -step_size, ts[::-1], state, args
+        state_types,
+        args_types,
+        tableau,
+        augmented_ode,
+        -step_size,
+        ts[::-1],
+        state,
+        args,
     )
 
     ts_bar = jnp.array([t0_bar, t_bar])

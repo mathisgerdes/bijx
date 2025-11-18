@@ -42,6 +42,8 @@ class ConvNet(nnx.Module):
         hidden_channels: list[int] = [8, 8],
         activation: tp.Callable = nnx.leaky_relu,
         final_activation: tp.Callable = nnx.tanh,
+        final_kernel_init: tp.Callable = nnx.initializers.normal(),
+        final_bias_init: tp.Callable = nnx.initializers.zeros,
         padding: str = "CIRCULAR",
         *,
         rngs: nnx.Rngs,
@@ -50,19 +52,33 @@ class ConvNet(nnx.Module):
         self.activation = activation
         self.final_activation = final_activation
 
-        self.conv_layers = [
+        self.conv_layers = nnx.List(
+            [
+                nnx.Conv(
+                    in_features=c_in,
+                    out_features=c_out,
+                    kernel_size=kernel_size,
+                    padding=padding,
+                    rngs=rngs,
+                )
+                for c_in, c_out in zip(
+                    [in_channels] + list(hidden_channels)[:-1],
+                    list(hidden_channels),
+                )
+            ]
+        )
+
+        self.conv_layers.append(
             nnx.Conv(
-                in_features=c_in,
-                out_features=c_out,
+                in_features=hidden_channels[-1],
+                out_features=out_channels,
                 kernel_size=kernel_size,
+                kernel_init=final_kernel_init,
+                bias_init=final_bias_init,
                 padding=padding,
                 rngs=rngs,
             )
-            for c_in, c_out in zip(
-                [in_channels] + list(hidden_channels),
-                list(hidden_channels) + [out_channels],
-            )
-        ]
+        )
 
     def __call__(self, x):
         """Apply convolutional network to input data.
@@ -133,10 +149,12 @@ class ResNet(nnx.Module):
             in_features=in_features, out_features=width, rngs=rngs
         )
 
-        self.hidden_layers = [
-            nnx.Linear(in_features=width, out_features=width, rngs=rngs)
-            for _ in range(depth)
-        ]
+        self.hidden_layers = nnx.List(
+            [
+                nnx.Linear(in_features=width, out_features=width, rngs=rngs)
+                for _ in range(depth)
+            ]
+        )
 
         self.final_layer = nnx.Linear(
             in_features=width,
@@ -205,25 +223,27 @@ class MLP(nnx.Module):
         self.activation = activation
         self.final_activation = final_activation
 
-        self.layers = [
+        layers = [
             nnx.Linear(
                 in_features=in_features, out_features=hidden_features[0], rngs=rngs
             )
         ]
 
         for i in range(len(hidden_features) - 1):
-            self.layers.append(
+            layers.append(
                 nnx.Linear(
                     in_features=hidden_features[i],
                     out_features=hidden_features[i + 1],
                     rngs=rngs,
                 )
             )
-        self.layers.append(
+        layers.append(
             nnx.Linear(
                 in_features=hidden_features[-1], out_features=out_features, rngs=rngs
             )
         )
+
+        self.layers = nnx.List(layers)
 
     def __call__(self, x):
         """Apply multi-layer perceptron to input features.

@@ -36,8 +36,6 @@ import numpy as np
 from flax import nnx
 from flax.nnx.nn import dtypes
 
-from ..utils import Const
-
 
 def conv_indices(shape: tuple[int, ...], return_flat=True, center=True):
     """Generate index matrix for translation invariant convolution layers.
@@ -523,6 +521,7 @@ class ConvSym(nnx.Module):
         bias_init: ftp.Initializer = nnx.nn.linear.default_bias_init,
         conv_general_dilated: ftp.ConvGeneralDilatedT = jax.lax.conv_general_dilated,
         promote_dtype: ftp.PromoteDtypeFn = dtypes.promote_dtype,
+        preferred_element_type: ftp.Dtype | None = None,
         rngs: nnx.Rngs,
     ):
         if isinstance(kernel_size, int):
@@ -537,10 +536,10 @@ class ConvSym(nnx.Module):
 
         if orbit_function is not None:
             orbit_count, orbits = orbit_function(kernel_size)
-            self.orbits = Const(orbits)
+            self.orbits = nnx.data(orbits)
             w_shape = (orbit_count, kernel_shape[-2], kernel_shape[-1])
         else:
-            self.orbits = Const(None)
+            self.orbits = None
             w_shape = (np.prod(kernel_shape[:-2]), kernel_shape[-2], kernel_shape[-1])
 
         # Choose parameter dtype lazily to respect global precision settings
@@ -557,7 +556,7 @@ class ConvSym(nnx.Module):
             bias_key = rngs.params()
             self.bias = nnx.Param(bias_init(bias_key, bias_shape, chosen_param_dtype))
         else:
-            self.bias = nnx.Param(None)
+            self.bias = None
 
         self.in_features = in_features
         self.out_features = out_features
@@ -570,18 +569,19 @@ class ConvSym(nnx.Module):
         self.use_bias = use_bias
         self.mask = mask
         self.dtype = dtype
-        self.param_dtype = chosen_param_dtype
+        self.param_dtype = param_dtype
         self.precision = precision
         self.kernel_init = kernel_init
         self.bias_init = bias_init
         self.conv_general_dilated = conv_general_dilated
         self.promote_dtype = promote_dtype
+        self.preferred_element_type = preferred_element_type
 
     @property
     def kernel(self) -> nnx.Param[jax.Array]:
         """Construct full kernel from orbit-shared parameters."""
         if self.orbits is not None:
-            kernel = self.kernel_params[self.orbits.value]
+            kernel = self.kernel_params[self.orbits]
         else:
             kernel = self.kernel_params.reshape(self.kernel_shape)
         return nnx.Param(kernel)

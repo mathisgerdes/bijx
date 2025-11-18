@@ -7,13 +7,14 @@ diffrax configuration helpers. The solvers support both forward and
 reverse integration with automatic differentiation.
 """
 
+from dataclasses import dataclass, replace
 from functools import partial
 
 import diffrax
-import flax.struct
 import flax.typing as ftp
 import jax
 import jax.numpy as jnp
+from flax import nnx
 from jax import core, custom_derivatives
 from jax.experimental.ode import api_util, ravel_first_arg
 from jax.flatten_util import ravel_pytree
@@ -24,8 +25,8 @@ __all__ = [
 ]
 
 
-@flax.struct.dataclass
-class DiffraxConfig:
+@dataclass(frozen=True)
+class DiffraxConfig(nnx.Pytree):
     """Configuration for diffrax ODE solving in continuous normalizing flows.
 
     Encapsulates all parameters needed for diffrax-based ODE integration,
@@ -62,7 +63,7 @@ class DiffraxConfig:
     t_start: float = 0.0
     t_end: float = 1.0
     dt: float = 0.05
-    saveat: diffrax.SaveAt = diffrax.SaveAt(t1=True)
+    saveat: nnx.Data[diffrax.SaveAt] = diffrax.SaveAt(t1=True)
     stepsize_controller: diffrax.AbstractStepSizeController = diffrax.ConstantStepSize()
     adjoint: diffrax.AbstractAdjoint = diffrax.RecursiveCheckpointAdjoint()
     event: diffrax.Event | None = None
@@ -71,6 +72,10 @@ class DiffraxConfig:
     solver_state: ftp.ArrayPytree | None = None
     controller_state: ftp.ArrayPytree | None = None
     made_jump: bool | None = None
+
+    def replace(self, **changes):
+        """Create new config with specified parameters replaced."""
+        return replace(self, **changes)
 
     def optional_override(
         self,

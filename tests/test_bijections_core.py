@@ -549,8 +549,9 @@ class TestCompositeSamplers:
 
     def test_buffered_sampler_basic(self, rng_key):
         """Test basic BufferedSampler functionality."""
-        base_dist = IndependentNormal(event_shape=(3,))
-        base_dist.rngs = nnx.Rngs(rng_key)  # Provide rngs before creating buffer
+        base_dist = IndependentNormal(
+            event_shape=(3,), rngs=nnx.Rngs(rng_key)
+        )  # Provide rngs before creating buffer
 
         # Create buffered sampler
         buffered = BufferedSampler(base_dist, buffer_size=5)

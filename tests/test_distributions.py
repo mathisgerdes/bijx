@@ -663,16 +663,16 @@ class TestGaussianMixture:
         )
 
         # Check shapes
-        assert gmm.means().shape == (n_components, data_dim)
-        assert gmm.covs().shape == (n_components, data_dim, data_dim)
-        assert gmm.weights().shape == (n_components,)
+        assert gmm.means.shape == (n_components, data_dim)
+        assert gmm.covs.shape == (n_components, data_dim, data_dim)
+        assert gmm.weights.shape == (n_components,)
 
         # Check that weights are normalized
-        np.testing.assert_allclose(jnp.sum(gmm.weights()), 1.0, rtol=RTOL)
-        assert jnp.all(gmm.weights() > 0)
+        np.testing.assert_allclose(jnp.sum(gmm.weights), 1.0, rtol=RTOL)
+        assert jnp.all(gmm.weights > 0)
 
         # Check covariances are positive (diagonal elements)
-        covariances = gmm.covs()
+        covariances = gmm.covs
         diagonal_elements = jnp.diagonal(covariances, axis1=-2, axis2=-1)
         assert jnp.all(diagonal_elements > 0)
 
@@ -685,9 +685,9 @@ class TestGaussianMixture:
         )
 
         # Check shapes
-        assert gmm.means().shape == (n_components, data_dim)
-        assert gmm.covs().shape == (n_components, data_dim, data_dim)
-        assert gmm.weights().shape == (n_components,)
+        assert gmm.means.shape == (n_components, data_dim)
+        assert gmm.covs.shape == (n_components, data_dim, data_dim)
+        assert gmm.weights.shape == (n_components,)
 
     @given(batch_shape=batch_shapes())
     def test_sample_shapes(self, batch_shape):
@@ -801,7 +801,7 @@ class TestGaussianMixture:
 
         # Should have uniform weights
         expected_weights = jnp.array([0.5, 0.5])
-        np.testing.assert_allclose(gmm.weights(), expected_weights, atol=ATOL)
+        np.testing.assert_allclose(gmm.weights, expected_weights, atol=ATOL)
 
 
 class TestDistributionIntegration:

@@ -109,10 +109,13 @@ class ConvVF(nnx.Module):
         # contract time embedding with conv kernel & bias
         conv_graph, conv_params = nnx.split(self.conv)
 
-        conv_params["kernel_params"].value = _contract_with_emb(
-            conv_params["kernel_params"], t_emb
+        conv_params["kernel_params"] = nnx.Param(
+            _contract_with_emb(conv_params["kernel_params"], t_emb)
         )
-        conv_params["bias"].value = _contract_with_emb(conv_params["bias"], t_emb)
+        if self.conv.bias is not None:
+            conv_params["bias"] = nnx.Param(
+                _contract_with_emb(conv_params["bias"], t_emb)
+            )
 
         conv = nnx.merge(conv_graph, conv_params)
 

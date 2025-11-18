@@ -8,6 +8,7 @@ ecosystem and follow similar API patterns to blackjax.
 """
 
 import typing as tp
+from dataclasses import dataclass, replace
 
 import flax
 import jax
@@ -17,8 +18,8 @@ from flax import nnx
 __all__ = ["IMH", "IMHState", "IMHInfo"]
 
 
-@flax.struct.dataclass
-class IMHState:
+@dataclass(frozen=True)
+class IMHState(nnx.Pytree):
     """State for Independent Metropolis-Hastings sampler.
 
     Stores current position and associated log probabilities for both
@@ -33,8 +34,8 @@ class IMHState:
     """Log probability of position under proposal distribution."""
 
 
-@flax.struct.dataclass
-class IMHInfo:
+@dataclass(frozen=True)
+class IMHInfo(nnx.Pytree):
     """Information about the IMH sampling step."""
 
     is_accepted: bool
@@ -43,6 +44,10 @@ class IMHInfo:
     """Acceptance probability for the proposed move."""
     proposal: IMHState
     """The proposed state that was considered."""
+
+    def replace(self, **changes):
+        """Create new config with specified parameters replaced."""
+        return replace(self, **changes)
 
 
 class IMH(nnx.Module):

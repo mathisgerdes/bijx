@@ -30,12 +30,12 @@ class TestDefaultWrap:
         val = jnp.array([1.0, 2.0])
         wrapped = default_wrap(val)
         assert isinstance(wrapped, nnx.Param)
-        np.testing.assert_allclose(wrapped.value, val)
+        np.testing.assert_allclose(wrapped.get_value(), val)
 
     def test_wrap_shape(self, rng_key):
         wrapped = default_wrap((3, 2), rngs=nnx.Rngs(rng_key))
         assert isinstance(wrapped, nnx.Param)
-        assert wrapped.value.shape == (3, 2)
+        assert wrapped.shape == (3, 2)
 
     def test_wrap_variable_passthrough(self):
         v = nnx.Param(jnp.array([3.0]))
@@ -113,15 +113,15 @@ class TestNoiseModel:
     def test_noise_added(self, rng_key):
         model = self._Toy()
         noisy = noise_model(nnx.Rngs(rng_key), model, scale=0.5)
-        assert not jnp.allclose(noisy.w.value, model.w.value)
+        assert not jnp.allclose(noisy.w.get_value(), model.w.get_value())
 
     def test_filtering(self, rng_key):
         model = self._Toy()
         # Explicitly target trainable parameters only
         noisy = noise_model(nnx.Rngs(rng_key), model, 1.0, nnx.Param)
         # Param 'w' should change; 'frozen' should remain constant
-        assert not jnp.allclose(noisy.w.value, model.w.value)
-        assert noisy.frozen.value == 0.0
+        assert not jnp.allclose(noisy.w, model.w)
+        assert noisy.frozen == 0.0
 
 
 class TestMCMCSamplers:

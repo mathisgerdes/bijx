@@ -7,7 +7,7 @@ diffrax configuration helpers. The solvers support both forward and
 reverse integration with automatic differentiation.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from functools import partial
 
 import diffrax
@@ -25,7 +25,7 @@ __all__ = [
 ]
 
 
-@dataclass(frozen=True)
+@nnx.dataclass
 class DiffraxConfig(nnx.Pytree):
     """Configuration for diffrax ODE solving in continuous normalizing flows.
 
@@ -63,7 +63,7 @@ class DiffraxConfig(nnx.Pytree):
     t_start: float = 0.0
     t_end: float = 1.0
     dt: float = 0.05
-    saveat: nnx.Data[diffrax.SaveAt] = diffrax.SaveAt(t1=True)
+    saveat: diffrax.SaveAt = nnx.static(default=diffrax.SaveAt(t1=True))
     stepsize_controller: diffrax.AbstractStepSizeController = diffrax.ConstantStepSize()
     adjoint: diffrax.AbstractAdjoint = diffrax.RecursiveCheckpointAdjoint()
     event: diffrax.Event | None = None

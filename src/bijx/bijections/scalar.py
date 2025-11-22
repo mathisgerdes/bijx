@@ -31,12 +31,12 @@ class TransformedParameter(nnx.Module):
 
     Args:
         param: The underlying parameter variable.
-        transform: Function to apply to param.value, or None for identity.
+        transform: Function to apply to param, or None for identity.
 
     Example:
         >>> param = nnx.Param(jnp.array(0.0))
         >>> transformed = TransformedParameter(param, jnp.exp)
-        >>> transformed.value  # Returns exp(0.0) = 1.0
+        >>> transformed.get_value()  # Returns exp(0.0) = 1.0
         Array(1., dtype=float64, weak_type=True)
     """
 
@@ -44,13 +44,12 @@ class TransformedParameter(nnx.Module):
         self.param = param
         self.transform = transform
 
-    @property
-    def value(self):
+    def get_value(self):
         """Get the transformed parameter value."""
         transform = self.transform
         if transform is None:
-            return self.param.value
-        return transform(self.param.value)
+            return self.param.get_value()
+        return transform(self.param.get_value())
 
 
 _softplus_inv_one = jnp.log(jnp.expm1(1))
@@ -225,7 +224,7 @@ class GaussianCDF(ScalarBijection):
         self.scale = TransformedParameter(
             param=default_wrap(
                 scale,
-                # initialize such that scale.value = 1
+                # initialize such that scale.get_value() = 1
                 init_fn=nnx.initializers.constant(_softplus_inv_one),
                 rngs=rngs,
             ),
@@ -234,14 +233,18 @@ class GaussianCDF(ScalarBijection):
 
     def log_jac(self, x, y, **kwargs):
         return jax.scipy.stats.norm.logpdf(
-            x, loc=self.mean.value, scale=self.scale.value
+            x, loc=self.mean.get_value(), scale=self.scale.get_value()
         )
 
     def fwd(self, x, **kwargs):
-        return jax.scipy.stats.norm.cdf(x, loc=self.mean.value, scale=self.scale.value)
+        return jax.scipy.stats.norm.cdf(
+            x, loc=self.mean.get_value(), scale=self.scale.get_value()
+        )
 
     def rev(self, y, **kwargs):
-        return jax.scipy.stats.norm.ppf(y, loc=self.mean.value, scale=self.scale.value)
+        return jax.scipy.stats.norm.ppf(
+            y, loc=self.mean.get_value(), scale=self.scale.get_value()
+        )
 
 
 class Tan(ScalarBijection):
@@ -413,15 +416,15 @@ class Power(ScalarBijection):
         )
 
     def log_jac(self, x, y, **kwargs):
-        return jnp.log(jnp.abs(self.exponent.value)) + (
-            self.exponent.value - 1
+        return jnp.log(jnp.abs(self.exponent.get_value())) + (
+            self.exponent.get_value() - 1
         ) * jnp.log(x)
 
     def fwd(self, x, **kwargs):
-        return x**self.exponent.value
+        return x ** self.exponent.get_value()
 
     def rev(self, y, **kwargs):
-        return y ** (1 / self.exponent.value)
+        return y ** (1 / self.exponent.get_value())
 
 
 class Sinh(ScalarBijection):
@@ -495,13 +498,13 @@ class AffineLinear(ScalarBijection):
         )
 
     def log_jac(self, x, y, **kwargs):
-        return jnp.broadcast_to(jnp.log(self.scale.value), jnp.shape(x))
+        return jnp.broadcast_to(jnp.log(self.scale.get_value()), jnp.shape(x))
 
     def fwd(self, x, **kwargs):
-        return self.scale.value * x + self.shift.value
+        return self.scale.get_value() * x + self.shift.get_value()
 
     def rev(self, y, **kwargs):
-        return (y - self.shift.value) / self.scale.value
+        return (y - self.shift.get_value()) / self.scale.get_value()
 
 
 class Scaling(ScalarBijection):
@@ -543,13 +546,13 @@ class Scaling(ScalarBijection):
         )
 
     def log_jac(self, x, y, **kwargs):
-        return jnp.broadcast_to(jnp.log(jnp.abs(self.scale.value)), jnp.shape(x))
+        return jnp.broadcast_to(jnp.log(jnp.abs(self.scale.get_value())), jnp.shape(x))
 
     def fwd(self, x, **kwargs):
-        return x * self.scale.value
+        return x * self.scale.get_value()
 
     def rev(self, y, **kwargs):
-        return y / self.scale.value
+        return y / self.scale.get_value()
 
 
 class Shift(ScalarBijection):
@@ -591,10 +594,10 @@ class Shift(ScalarBijection):
         return jnp.zeros_like(x)
 
     def fwd(self, x, **kwargs):
-        return x + self.shift.value
+        return x + self.shift.get_value()
 
     def rev(self, y, **kwargs):
-        return y - self.shift.value
+        return y - self.shift.get_value()
 
 
 class BetaStretch(ScalarBijection):
@@ -640,7 +643,7 @@ class BetaStretch(ScalarBijection):
         )
 
     def log_jac(self, x, y, **kwargs):
-        a = self.a.value
+        a = self.a.get_value()
         return (
             jnp.log(a)
             + jnp.log(x ** (a - 1) * (1 - x) ** a + x**a * (1 - x) ** (a - 1))
@@ -648,11 +651,11 @@ class BetaStretch(ScalarBijection):
         )
 
     def fwd(self, x, **kwargs):
-        a = self.a.value
+        a = self.a.get_value()
         xa = x**a
         return xa / (xa + (1 - x) ** a)
 
     def rev(self, y, **kwargs):
-        a = self.a.value
+        a = self.a.get_value()
         r = (y / (1 - y)) ** (1 / a)
         return r / (r + 1)

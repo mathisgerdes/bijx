@@ -88,8 +88,8 @@ class TestConvSym:
         conv_none = ConvSym(1, 2, kernel_size=(3, 3), orbit_function=None, rngs=r)
         # Parameter storage shapes differ under symmetry vs none
         n_orbits, _ = kernel_d4((3, 3))
-        assert conv_sym.kernel_params.value.shape == (n_orbits, 1, 2)
-        assert conv_none.kernel_params.value.shape == (9, 1, 2)
+        assert conv_sym.kernel_params.shape == (n_orbits, 1, 2)
+        assert conv_none.kernel_params.shape == (9, 1, 2)
         # Forward shape
         x = jnp.ones((8, 8, 1))
         y = conv_sym(x)

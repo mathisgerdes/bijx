@@ -22,7 +22,6 @@ Note:
 
 import functools
 import inspect
-from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
@@ -488,7 +487,7 @@ class ModuleReconstructor(nnx.Pytree):
 # )
 
 
-@dataclass(frozen=True)
+@nnx.dataclass
 class AutoVmapReconstructor(nnx.Pytree):
     r"""Automatic vectorization for module reconstruction with batched parameters.
 
@@ -509,8 +508,6 @@ class AutoVmapReconstructor(nnx.Pytree):
         - Support for both callable attributes and direct method calls
 
     Warning:
-        Parameters inside modules must use explicit ``.value`` access as implicit
-        parameter access can cause vmap errors with NNX Param types.
         Keyword arguments cannot be vectorized over - only positional arguments
         batching via ``input_ranks`` specification is supported.
 
@@ -530,8 +527,8 @@ class AutoVmapReconstructor(nnx.Pytree):
     """
 
     reconstructor: ModuleReconstructor
-    params: nnx.Data[nnx.State | dict | list[jax.Array] | jax.Array]
-    params_rank: nnx.Data[int | dict] = 1
+    params: nnx.State | dict | list[jax.Array] | jax.Array = nnx.data()
+    params_rank: int | dict = nnx.static(default=1)
 
     def __call__(self, fn_name, *args, input_ranks: tuple[int, ...] = (0, 0), **kwargs):
 

@@ -61,7 +61,7 @@ class SpectrumScaling(ApplyBijection):
 
     @property
     def scaling(self):
-        return self.scaling_var.value
+        return self.scaling_var.get_value()
 
     def scale(self, r, reverse=False):
         """Apply Fourier-space scaling transformation.
@@ -168,9 +168,10 @@ class FreeTheoryScaling(SpectrumScaling):
     @property
     def scaling(self):
         """Multiplicative factor in Fourier space."""
-        if self.scaling_var.value is None:
-            return self.spectrum_function(self.ks, self.m2.value)
-        return self.scaling_var.value
+        scaling_var = self.scaling_var.get_value()
+        if scaling_var is None:
+            return self.spectrum_function(self.ks, self.m2)
+        return scaling_var
 
 
 class ToFourierData(Bijection):

@@ -284,7 +284,7 @@ class KernelReduced(Embedding):
             Reduced-dimension embedding features.
         """
         embed = self.kernel(val)
-        sup = self.superposition.value / self.kernel.feature_count
+        sup = self.superposition / self.kernel.feature_count
         return jnp.einsum("ij,...j->...i", sup, embed)
 
 

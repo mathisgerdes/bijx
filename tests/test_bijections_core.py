@@ -496,8 +496,8 @@ class TestBijectionIntegration:
         def loss_fn(params):
             bijection = AffineLinear(rngs=nnx.Rngs(rng_key))
             # Manually set parameters for testing via the underlying param objects
-            bijection.scale.param.value = params["scale"]
-            bijection.shift.param.value = params["shift"]
+            bijection.scale.param.set_value(params["scale"])
+            bijection.shift.param.set_value(params["shift"])
 
             x = jnp.array([1.0, 2.0])
             log_density = jnp.array(0.0)

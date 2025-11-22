@@ -321,9 +321,9 @@ class MonotoneRQSpline(ApplyBijection):
 
         y, log_jac = rational_quadratic_spline(
             x,
-            self.widths.value,
-            self.heights.value,
-            self.slopes.value,
+            self.widths,
+            self.heights,
+            self.slopes,
             inverse=reverse,
         )
 

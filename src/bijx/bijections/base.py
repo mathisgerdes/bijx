@@ -20,6 +20,7 @@ where $\mathbf{J}$ is the Jacobian matrix of the transformation.
 from functools import partial
 
 import jax
+import jax.numpy as jnp
 from flax import nnx
 
 from ..utils import Const
@@ -153,12 +154,12 @@ class CondInverse(Bijection):
     """
 
     def __init__(self, bijection: Bijection, invert: bool = True):
-        self.invert = Const(invert)
+        self.invert = Const(jnp.array(invert, dtype=bool))
         self.bijection = bijection
 
     def forward(self, x, log_density, **kwargs):
         return jax.lax.cond(
-            self.invert.value,
+            self.invert,
             lambda x, ld, kw: self.bijection.reverse(x, ld, **kw),
             lambda x, ld, kw: self.bijection.forward(x, ld, **kw),
             x,
@@ -168,7 +169,7 @@ class CondInverse(Bijection):
 
     def reverse(self, x, log_density, **kwargs):
         return jax.lax.cond(
-            self.invert.value,
+            self.invert,
             lambda x, ld, kw: self.bijection.forward(x, ld, **kw),
             lambda x, ld, kw: self.bijection.reverse(x, ld, **kw),
             x,
@@ -177,7 +178,7 @@ class CondInverse(Bijection):
         )
 
     def invert(self):
-        return CondInverse(self.bijection, ~self.invert.value)
+        return CondInverse(self.bijection, ~self.invert)
 
 
 class Inverse(Bijection):

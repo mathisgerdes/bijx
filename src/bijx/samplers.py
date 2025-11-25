@@ -181,23 +181,26 @@ class BufferedSampler(Distribution):
         if batch_shape != ():
             return self.dist.sample(batch_shape, rng=rng, **kwargs)
 
-        _, self.buffer_index.value, self.buffer.value = nnx.cond(
-            self.buffer_index.value >= self.buffer_size,
+        _, new_buffer_index, new_buffer = nnx.cond(
+            self.buffer_index.get_value() >= self.buffer_size,
             lambda sampler: (
                 sampler,
-                jnp.zeros_like(self.buffer_index.value),
+                jnp.zeros_like(self.buffer_index),
                 sampler.sample(
                     (self.buffer_size,),
                     rng=rng,
                     **kwargs,
                 ),
             ),
-            lambda sampler: (sampler, self.buffer_index.value + 1, self.buffer.value),
+            lambda sampler: (sampler, self.buffer_index + 1, self.buffer.get_value()),
             self.dist,
         )
 
-        draw = jax.tree.map(lambda x: x[self.buffer_index.value], self.buffer.value)
-        self.buffer_index.value += 1
+        self.buffer_index.set_value(new_buffer_index)
+        self.buffer.set_value(new_buffer)
+
+        draw = jax.tree.map(lambda x: x[self.buffer_index.get_value()], self.buffer)
+        self.buffer_index.set_value(self.buffer_index + 1)
 
         return draw  # (x, log_density)
 

@@ -5,7 +5,7 @@ This module provides comprehensive utilities for working with Fourier transforms
 of real-valued fields based on the FFT implementation in JAX.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from enum import IntEnum
 from itertools import product
 
@@ -74,7 +74,7 @@ def fft_momenta(
     return np.moveaxis(ks, 0, -1)
 
 
-@dataclass(frozen=True)
+@nnx.dataclass
 class FourierMeta(nnx.Pytree):
     """Metadata for handling real FFT constraints and symmetries.
 
@@ -237,7 +237,7 @@ class FFTRep(IntEnum):
     comp_real = 3  # 'independent real degrees of freedom'
 
 
-@dataclass(frozen=True)
+@nnx.dataclass
 class FourierData(nnx.Pytree):
     """Multi-representation container for Fourier data.
 
@@ -263,9 +263,9 @@ class FourierData(nnx.Pytree):
         >>> fd_real = fd.to(FFTRep.comp_real)
     """
 
-    data: nnx.Data[jax.Array]
-    rep: FFTRep
-    meta: FourierMeta
+    data: jax.Array = nnx.data()
+    rep: FFTRep = nnx.static()
+    meta: FourierMeta = nnx.data()
 
     def replace(self, **changes):
         """Create new config with specified parameters replaced."""

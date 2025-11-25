@@ -8,7 +8,7 @@ ecosystem and follow similar API patterns to blackjax.
 """
 
 import typing as tp
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
 import flax
 import jax
@@ -18,7 +18,7 @@ from flax import nnx
 __all__ = ["IMH", "IMHState", "IMHInfo"]
 
 
-@dataclass(frozen=True)
+@nnx.dataclass
 class IMHState(nnx.Pytree):
     """State for Independent Metropolis-Hastings sampler.
 
@@ -26,23 +26,23 @@ class IMHState(nnx.Pytree):
     target and proposal distributions.
     """
 
-    position: flax.typing.ArrayPytree
+    position: flax.typing.ArrayPytree = nnx.data()
     """Current sample position in the state space."""
-    log_prob_target: float
+    log_prob_target: float = nnx.data()
     """Log probability of position under target distribution."""
-    log_prob_proposal: float
+    log_prob_proposal: float = nnx.data()
     """Log probability of position under proposal distribution."""
 
 
-@dataclass(frozen=True)
+@nnx.dataclass
 class IMHInfo(nnx.Pytree):
     """Information about the IMH sampling step."""
 
-    is_accepted: bool
+    is_accepted: bool = nnx.data()
     """Whether the proposed move was accepted."""
-    accept_prob: float
+    accept_prob: float = nnx.data()
     """Acceptance probability for the proposed move."""
-    proposal: IMHState
+    proposal: IMHState = nnx.data()
     """The proposed state that was considered."""
 
     def replace(self, **changes):

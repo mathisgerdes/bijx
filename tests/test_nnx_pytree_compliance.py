@@ -28,9 +28,9 @@ class SimpleVectorFieldModule(nnx.Module):
 
     def __call__(self, t, x):
         """Linear vector field with learnable parameters."""
-        dx_dt = x @ self.weight.value.T + self.bias.value
+        dx_dt = x @ self.weight.T + self.bias
         # Divergence of linear transformation is trace of weight matrix
-        div = jnp.trace(self.weight.value)
+        div = jnp.trace(self.weight)
         return dx_dt, -div
 
 
@@ -156,7 +156,7 @@ class TestMixtureStackPytreeCompliance:
             lambda mean, scale: bijx.DiagonalNormal(
                 mean=nnx.Param(mean), scales=nnx.Param(scale)
             )
-        )(nnx.Param(means), nnx.Param(scales))
+        )(means, scales)
 
         # This should not raise ValueError about unexpected Arrays
         mixture = bijx.MixtureStack(dist_stack, weights=(5,), rngs=rngs)
@@ -174,7 +174,7 @@ class TestMixtureStackPytreeCompliance:
             lambda mean, scale: bijx.DiagonalNormal(
                 mean=nnx.Param(mean), scales=nnx.Param(scale)
             )
-        )(nnx.Param(means), nnx.Param(scales))
+        )(means, scales)
 
         mixture = bijx.MixtureStack(dist_stack, weights=(3,), rngs=rngs)
 

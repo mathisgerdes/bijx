@@ -162,7 +162,7 @@ class FourierFeatures(NonlinearFeatures):
         Returns:
             Sinusoidal features with shape (..., input_channels, feature_count).
         """
-        features = jnp.einsum("...i,ij->...ij", phi_lin, self.phi_freq.value)
+        features = jnp.einsum("...i,ij->...ij", phi_lin, self.phi_freq)
         features = jnp.sin(features)
         return features
 

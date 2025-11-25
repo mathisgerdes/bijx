@@ -355,7 +355,7 @@ class MultivariateNormal(ArrayDistribution):
     @property
     def cov(self):
         """Reconstruct covariance matrix from Cholesky factor."""
-        matrix = _cholesky_unfold(self.cholesky.value)
+        matrix = _cholesky_unfold(self.cholesky)
         return jnp.einsum("...ij,...kj->...ik", matrix, matrix)
 
     @classmethod
@@ -414,7 +414,7 @@ class MultivariateNormal(ArrayDistribution):
         Returns:
             Log density values with batch dimensions matching input.
         """
-        cholesky = _cholesky_unfold(self.cholesky.value)
+        cholesky = _cholesky_unfold(self.cholesky)
         whitened = jnp.vectorize(
             partial(jax.lax.linalg.triangular_solve, lower=True, transpose_a=True),
             signature="(n,n),(n)->(n)",
@@ -438,7 +438,7 @@ class MultivariateNormal(ArrayDistribution):
         """
         rng = self._get_rng(rng)
         noise = jax.random.normal(rng, (*batch_shape, self.dim))
-        cholesky = _cholesky_unfold(self.cholesky.value)
+        cholesky = _cholesky_unfold(self.cholesky)
         # Apply epsilon regularization to ensure valid Cholesky decomposition
         safe_diagonal = jnp.abs(cholesky.diagonal()) + self.epsilon
         cholesky = cholesky.at[jnp.diag_indices(cholesky.shape[-1])].set(safe_diagonal)
@@ -578,7 +578,7 @@ class DiagonalNormal(ArrayDistribution):
 
     @property
     def scales(self):
-        return jnp.abs(self.scales_bare.value) + self.epsilon
+        return jnp.abs(self.scales_bare) + self.epsilon
 
     def log_density(self, x):
         """Compute log probability density at given points.
@@ -636,11 +636,11 @@ class MixtureStack(Distribution):
 
     @property
     def weights_normalized(self):
-        return nnx.softmax(self.weights.value)
+        return nnx.softmax(self.weights)
 
     @property
     def weights_log_normalized(self):
-        return nnx.log_softmax(self.weights.value)
+        return nnx.log_softmax(self.weights)
 
     @property
     def stack(self):

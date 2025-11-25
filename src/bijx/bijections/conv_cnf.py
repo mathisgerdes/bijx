@@ -34,9 +34,10 @@ from ..utils import ShapeInfo
 
 def _contract_with_emb(par, t_emb):
     """Contract parameter tensor with time embedding."""
-    if par.value is None:
+    par = par.get_value()
+    if par is None:
         return None
-    return rearrange(par.value, "... (c t) -> ... c t", t=t_emb.shape[-1]) @ t_emb
+    return rearrange(par, "... (c t) -> ... c t", t=t_emb.shape[-1]) @ t_emb
 
 
 class ConvVF(nnx.Module):
@@ -120,11 +121,11 @@ class ConvVF(nnx.Module):
         conv = nnx.merge(conv_graph, conv_params)
 
         feature_superposition = (
-            self.feature_superposition.value / self.feature_map.out_channel_size
+            self.feature_superposition / self.feature_map.out_channel_size
         )
 
         # extract the local-coupling weights; shape=(in features, out features)
-        w00 = conv.kernel_params.value[0]
+        w00 = conv.kernel_params[0]
         # contract with feature superposition
         w00 = jnp.einsum("if,io->fo", feature_superposition, w00)
 

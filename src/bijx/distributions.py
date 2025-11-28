@@ -541,7 +541,7 @@ class DiagonalNormal(ArrayDistribution):
     ):
         """Create diagonal normal with given variances.
 
-        Note: If variances is an instace of nnx.Variable, its value is cloned but the
+        Note: If variances is an instance of nnx.Variable, its value is cloned but the
         type is preserved (nnx.Param, Const, etc.).
 
         Args:

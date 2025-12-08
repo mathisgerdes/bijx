@@ -33,14 +33,6 @@ Physics & advanced methods:
 - **Symmetry-Aware Architectures**: Equivariant layers and transformations (e.g., lattice-symmetric CNFs)
 - **Fourier-Space Operations**: Tools for momentum space transformations and complex field decomposition
 
-## Related Publications
-
-This library extends research software developed for the following publications, which you may find useful and may consider citing if you use the relevant components:
-
-- **[Learning Lattice Quantum Field Theories with Equivariant Continuous Flows](https://arxiv.org/abs/2207.00283)**
-
-- **[Continuous Normalizing Flows for Lattice Gauge Theories](https://arxiv.org/abs/2410.13161)**
-
 ## Quickstart
 
 Here is a minimal example of building and sampling from a simple normalizing flow. We transform samples from a base distribution (a standard normal) using a chain of bijections to produce samples from a new, transformed distribution.
@@ -158,6 +150,33 @@ pytest tests/ src/bijx/ --doctest-modules
 # Run tests in parallel using xdist
 pytest -n auto
 ```
+
+## Citation
+
+If you use bijx in your research, please cite our JOSS paper:
+
+```bibtex
+@article{Gerdes2025Bijx,
+  doi = {10.21105/joss.09521},
+  url = {https://doi.org/10.21105/joss.09521},
+  year = {2025},
+  publisher = {The Open Journal},
+  volume = {10},
+  number = {116},
+  pages = {9521},
+  author = {Gerdes, Mathis and Cheng, Miranda C. N.},
+  title = {Bijx: Bijections and normalizing flows with JAX/NNX},
+  journal = {Journal of Open Source Software}
+}
+```
+
+### Related Publications
+
+This library extends research software developed for the following publications, which you may find useful and may consider citing if you use the relevant components:
+
+- **[Learning Lattice Quantum Field Theories with Equivariant Continuous Flows](https://arxiv.org/abs/2207.00283)**
+
+- **[Continuous Normalizing Flows for Lattice Gauge Theories](https://arxiv.org/abs/2410.13161)**
 
 ## Module Layout
 

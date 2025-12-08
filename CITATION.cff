@@ -1,5 +1,4 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below."
 type: software
 title: "bijx: Bijections & normalizing flows with JAX/NNX"
 abstract: "Flexible tools for building normalizing flows and bijections with tractable change of densities, focusing on research and applications in physics."
@@ -10,23 +9,30 @@ authors:
 repository-code: "https://github.com/mathisgerdes/bijx"
 url: "https://github.com/mathisgerdes/bijx"
 license: Apache-2.0
-version: 1.1.2
+message: If you use this software, please cite our article in the
+  Journal of Open Source Software.
 
 preferred-citation:
-  type: article
-  title: "Bijx: Bijections and normalizing flows with JAX/NNX"
   authors:
-    - family-names: Gerdes
-      given-names: Mathis
-    - family-names: Cheng
-      given-names: Miranda C. N.
-  journal: "Journal of Open Source Software"
-  year: 2025
-  volume: 10
-  number: 116
-  pages: 9521
+  - family-names: Gerdes
+    given-names: Mathis
+    orcid: "https://orcid.org/0000-0002-2369-1436"
+  - family-names: Cheng
+    given-names: Miranda C. N.
+    orcid: "https://orcid.org/0000-0002-4651-095X"
+  date-published: 2025-12-06
   doi: 10.21105/joss.09521
-  url: "https://doi.org/10.21105/joss.09521"
+  issn: 2475-9066
+  issue: 116
+  journal: Journal of Open Source Software
+  publisher:
+    name: Open Journals
+  start: 9521
+  title: "Bijx: Bijections and normalizing flows with JAX/NNX"
+  type: article
+  url: "https://joss.theoj.org/papers/10.21105/joss.09521"
+  volume: 10
+title: "Bijx: Bijections and normalizing flows with JAX/NNX"
 
 # Related publications that used precursor software now incorporated in bijx
 references:

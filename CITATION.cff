@@ -10,19 +10,23 @@ authors:
 repository-code: "https://github.com/mathisgerdes/bijx"
 url: "https://github.com/mathisgerdes/bijx"
 license: Apache-2.0
-version: 0.1.0
+version: 1.1.2
 
-# The preferred citation will be the JOSS paper once published
-# preferred-citation:
-#   type: article
-#   title: "bijx: Bijections & normalizing flows with JAX/NNX"
-#   authors:
-#     - family-names: Gerdes
-#       given-names: Mathis
-#     - family-names: Cheng
-#       given-names: Miranda C. N.
-#   journal: "Journal of Open Source Software"
-#   # ... will be added after JOSS acceptance
+preferred-citation:
+  type: article
+  title: "Bijx: Bijections and normalizing flows with JAX/NNX"
+  authors:
+    - family-names: Gerdes
+      given-names: Mathis
+    - family-names: Cheng
+      given-names: Miranda C. N.
+  journal: "Journal of Open Source Software"
+  year: 2025
+  volume: 10
+  number: 116
+  pages: 9521
+  doi: 10.21105/joss.09521
+  url: "https://doi.org/10.21105/joss.09521"
 
 # Related publications that used precursor software now incorporated in bijx
 references:

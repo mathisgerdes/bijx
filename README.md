@@ -10,6 +10,7 @@
 [![Tests](https://github.com/mathisgerdes/bijx/actions/workflows/tests.yml/badge.svg)](https://github.com/mathisgerdes/bijx/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/github/mathisgerdes/bijx/graph/badge.svg?token=QYAJU8QCJE)](https://codecov.io/github/mathisgerdes/bijx)
 [![PyPI](https://img.shields.io/pypi/v/bijx)](https://pypi.org/project/bijx/)
+[![DOI](https://joss.theoj.org/papers/10.21105/joss.09521/status.svg)](https://doi.org/10.21105/joss.09521)
 
 This library provides flexible tools for building normalizing flows and bijections with tractable change of densities, focusing on research and applications in physics. It aims to provide reusable building blocks rather than a simplified interface for common use cases.
 

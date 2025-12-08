@@ -1,6 +1,6 @@
 # Contributing to bijx
 
-If you're interested in contributing or using this library, feel free to reach out!
+Contributions are welcome! Feel free to open issues, submit pull requests, or reach out if you have questions.
 
 ## Development Setup
 

@@ -7,6 +7,7 @@ diffrax configuration helpers. The solvers support both forward and
 reverse integration with automatic differentiation.
 """
 
+from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
 
@@ -63,7 +64,7 @@ class DiffraxConfig(nnx.Pytree):
     t_start: float = 0.0
     t_end: float = 1.0
     dt: float = 0.05
-    saveat: diffrax.SaveAt = nnx.static(default=diffrax.SaveAt(t1=True))
+    saveat: diffrax.SaveAt = nnx.data(default=diffrax.SaveAt(t1=True))
     stepsize_controller: diffrax.AbstractStepSizeController = diffrax.ConstantStepSize()
     adjoint: diffrax.AbstractAdjoint = diffrax.RecursiveCheckpointAdjoint()
     event: diffrax.Event | None = None
@@ -146,6 +147,94 @@ class DiffraxConfig(nnx.Pytree):
             solver_state=self.solver_state,
             controller_state=self.controller_state,
             made_jump=self.made_jump,
+        )
+
+    def solve_sde(
+        self,
+        drift,
+        diffusion,
+        y0,
+        rng: jax.Array,
+        args=None,
+        *,
+        solver: diffrax.AbstractSolver | None = None,
+        levy_area: type = diffrax.BrownianIncrement,
+        noise_transform: Callable | None = None,
+    ):
+        """Solve SDE using configured parameters.
+
+        Solves the Itô SDE: dy = drift(t, y, args) dt + diffusion(t, y, args) dW
+
+        Args:
+            drift: Drift function (t, y, args) -> dy_drift.
+            diffusion: Diffusion function (t, y, args) -> noise_scale.
+            y0: Initial condition.
+            rng: Random key for Brownian motion.
+            args: Additional arguments passed to drift and diffusion.
+            solver: Override solver (default: Euler for SDE).
+            levy_area: Levy area type for Brownian motion.
+            noise_transform: Optional transform applied to Brownian increments.
+                The SDE becomes:
+                dy = drift dt + diffusion * noise_transform(dW)
+
+        Returns:
+            Diffrax solution object containing integration results.
+
+        Note:
+            SDE solving uses DirectAdjoint regardless of the configured adjoint,
+            as other adjoint methods are not compatible with stochastic terms.
+        """
+        dt = jnp.abs(self.dt) * jnp.sign(self.t_end - self.t_start)
+
+        bm = diffrax.UnsafeBrownianPath(
+            shape=y0.shape,
+            key=rng,
+            levy_area=levy_area,
+        )
+
+        # Create noise term with element-wise multiplication (diagonal diffusion)
+        # Override prod to do element-wise instead of tensordot
+        if noise_transform is not None:
+            _transform = noise_transform
+
+            class TransformedDiagonalTerm(diffrax.ControlTerm):
+                @staticmethod
+                def prod(vf, control):
+                    return vf * _transform(control)
+
+            noise_term = TransformedDiagonalTerm(diffusion, bm)
+        else:
+
+            class DiagonalControlTerm(diffrax.ControlTerm):
+                @staticmethod
+                def prod(vf, control):
+                    return vf * control
+
+            noise_term = DiagonalControlTerm(diffusion, bm)
+
+        terms = diffrax.MultiTerm(diffrax.ODETerm(drift), noise_term)
+
+        # Default to Euler for SDE if using an incompatible solver
+        if solver is None:
+            solver = (
+                self.solver
+                if isinstance(self.solver, diffrax.Euler | diffrax.Heun)
+                else diffrax.Euler()
+            )
+
+        return diffrax.diffeqsolve(
+            terms,
+            solver,
+            t0=self.t_start,
+            t1=self.t_end,
+            dt0=dt,
+            y0=y0,
+            args=args,
+            saveat=self.saveat,
+            stepsize_controller=self.stepsize_controller,
+            adjoint=diffrax.DirectAdjoint(),  # Required for SDE
+            max_steps=self.max_steps,
+            throw=self.throw,
         )
 
 

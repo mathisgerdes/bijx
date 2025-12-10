@@ -423,6 +423,80 @@ class TestODESolvers:
         # Should give similar results
         np.testing.assert_allclose(y_rk4, y_cg, rtol=1e-5)
 
+    def test_solve_sde_wrapper_calls_diffrax_with_direct_adjoint(
+        self, monkeypatch, rng_key
+    ):
+        """Solve_sde should set SDE-specific defaults without changing behavior."""
+
+        def drift(t, y, args):
+            return -args["rate"] * y
+
+        def diffusion(t, y, args):
+            return jnp.ones_like(y)
+
+        def noise_transform(dw):
+            return 2.0 * dw
+
+        cfg = DiffraxConfig(t_start=0.0, t_end=1.0, dt=0.1, solver=diffrax.Tsit5())
+
+        captured = {}
+
+        def fake_diffeqsolve(*args, **kwargs):
+            captured.update(kwargs)
+            # positional args mirror diffrax.diffeqsolve signature order
+            captured["positional"] = args
+            return "sentinel"
+
+        monkeypatch.setattr(diffrax, "diffeqsolve", fake_diffeqsolve)
+
+        y0 = jnp.array([1.0, 2.0])
+        args = {"rate": 0.5}
+
+        result = cfg.solve_sde(
+            drift,
+            diffusion,
+            y0,
+            rng_key,
+            args=args,
+            noise_transform=noise_transform,
+        )
+
+        assert result == "sentinel"
+        terms, solver_used = captured["positional"][:2]
+
+        assert isinstance(terms, diffrax.MultiTerm)
+        assert isinstance(solver_used, diffrax.Euler)
+        assert isinstance(captured["adjoint"], diffrax.DirectAdjoint)
+        np.testing.assert_allclose(captured["dt0"], 0.1)
+        assert captured["t0"] == cfg.t_start
+        assert captured["t1"] == cfg.t_end
+        assert captured["args"] == args
+        np.testing.assert_array_equal(captured["y0"], y0)
+
+        noise_term = terms.terms[1]
+        control = jnp.full_like(y0, 0.3)
+        prod = noise_term.prod(jnp.ones_like(y0), control)
+        np.testing.assert_allclose(prod, noise_transform(control))
+
+    def test_solve_sde_smoke_runs(self, rng_key):
+        """Smoke test that the SDE wrapper integrates without error."""
+
+        def drift(t, y, args):
+            return jnp.zeros_like(y)
+
+        def diffusion(t, y, args):
+            return jnp.ones_like(y)
+
+        cfg = DiffraxConfig(t_start=0.0, t_end=0.5, dt=0.1)
+        y0 = jnp.array([0.0, 1.0])
+
+        sol = cfg.solve_sde(drift, diffusion, y0, rng_key)
+
+        assert sol.ts.shape[0] == sol.ys.shape[0]
+        np.testing.assert_allclose(sol.ts[-1], cfg.t_end)
+        assert_finite_and_real(sol.ys, "SDE smoke solution")
+        assert sol.ys.shape[-1] == y0.shape[-1]
+
 
 class TestIntegrationConsistency:
     """Integration tests checking consistency between different solvers."""

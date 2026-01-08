@@ -8,6 +8,7 @@ The following examples showcase how features of `bijx` can be combined into a mo
 
 tutorials/continuous
 tutorials/gmm-spiral
+tutorials/analytic
 tutorials/scalar-theory
 tutorials/su3-flow
 ```

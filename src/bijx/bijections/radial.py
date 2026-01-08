@@ -58,7 +58,10 @@ class Radial(ApplyBijection):
     the radial transformation's Jacobian determinant is included.
 
     Args:
-        scalar_bijection: A bijection that transforms a scalar radius.
+        scalar_bijection: A bijection that transforms a scalar radius. Should map
+            positive values to positive values (R+ -> R+). Most bijections are
+            orientation-preserving; use :class:`RayTransform` if needed to ensure
+            f(0) = 0.
         n_dims: The dimensionality of the space.
         center: Initial center vector $c$. If None, defaults to zeros.
         scale: Initial scale vector for $S$. If None, defaults to ones.
@@ -77,7 +80,7 @@ class Radial(ApplyBijection):
             center, init_fn=nnx.initializers.normal(1), rngs=rngs
         )
         self.log_scale = default_wrap(
-            scale, init_fn=nnx.initializers.normal(1), rngs=rngs
+            scale, init_fn=nnx.initializers.normal(0.1), rngs=rngs
         )
 
     @property
@@ -132,7 +135,10 @@ class RadialConditional(ApplyBijection):
     The conditioning network maps unit vectors to bijection parameters.
 
     Args:
-        scalar_bijection: Base bijection for radial transformation.
+        scalar_bijection: Base bijection for radial transformation. Should map
+            positive values to positive values (R+ -> R+). Most bijections are
+            orientation-preserving; use :class:`RayTransform` if needed to ensure
+            $f(0) = 0$.
         cond_net: Conditioning network.
         center: Center of the radial transformation.
         scale: Scale factors for each dimension.
@@ -151,7 +157,7 @@ class RadialConditional(ApplyBijection):
             center, init_fn=nnx.initializers.normal(1), rngs=rngs
         )
         self.log_scale = default_wrap(
-            scale, init_fn=nnx.initializers.normal(1), rngs=rngs
+            scale, init_fn=nnx.initializers.normal(0.1), rngs=rngs
         )
 
         self.reconst = ModuleReconstructor(scalar_bijection)

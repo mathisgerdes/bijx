@@ -23,6 +23,7 @@ from bijx import (
     RayTransform,
     Shift,
     Sinh,
+    SinhConjugation,
     Tanh,
 )
 
@@ -340,8 +341,12 @@ class TestRadialConditional:
         if jnp.linalg.norm(x) < 0.1:
             return
 
-        # Use AffineLinear which has learnable parameters
-        scalar_bij_template = AffineLinear(rngs=nnx.Rngs(seed))
+        # Use SinhConjugation with RayTransform for orientation-preserving bijection;
+        # RayTransform ensures f(0)=0,
+        # and combined with monotonicity ensures f(r)>0 for r>0.
+        # Radial bijections require maps that preserve positivity (R+ -> R+)
+        base_bij = SinhConjugation(rngs=nnx.Rngs(seed))
+        scalar_bij_template = RayTransform(base_bij)
 
         # Get the number of parameters needed
         from bijx.bijections.coupling import ModuleReconstructor

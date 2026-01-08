@@ -88,6 +88,33 @@ This section provides comprehensive documentation for all bijx components, organ
    rational_quadratic_spline
 ```
 
+### Analytic Bijections
+
+Expressive parametric analytic transformations with closed-form inverses.
+
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
+
+   CubicRational
+   SinhConjugation
+   CubicConjugation
+   solve_cubic
+```
+
+### Radial Bijections
+
+Multi-dimensional transformations that operate on radial coordinates while preserving angular structure.
+
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
+
+   RayTransform
+   Radial
+   RadialConditional
+```
+
 ### Continuous Flows
 ```{eval-rst}
 .. autosummary::

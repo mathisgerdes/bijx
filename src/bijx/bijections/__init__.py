@@ -2,7 +2,17 @@
 Bijections. Not to be exported as a module.
 """
 
-from . import base, continuous, conv_cnf, coupling, fourier, meta, scalar, splines
+from . import (
+    analytic,
+    base,
+    continuous,
+    conv_cnf,
+    coupling,
+    fourier,
+    meta,
+    scalar,
+    splines,
+)
 
 from .base import *
 from .continuous import *
@@ -12,6 +22,8 @@ from .fourier import *
 from .meta import *
 from .scalar import *
 from .splines import *
+from .analytic import *
+from .radial import *
 
 __all__ = [
     # -- base -- #
@@ -63,4 +75,13 @@ __all__ = [
     # -- splines -- #
     "MonotoneRQSpline",
     "rational_quadratic_spline",
+    # -- analytic -- #
+    "CubicRational",
+    "SinhConjugation",
+    "CubicConjugation",
+    "solve_cubic",
+    # -- radial -- #
+    "RayTransform",
+    "Radial",
+    "RadialConditional",
 ]

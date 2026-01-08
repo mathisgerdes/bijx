@@ -356,18 +356,6 @@ class ModuleReconstructor(nnx.Pytree):
         self.params_leaves = nnx.static(params_leaves)
         self.unconditional = nnx.data(unconditional)
 
-    # def _tree_flatten(self):
-    #     children = (self.unconditional,)
-    #     aux_data = (self.params_treedef, self.params_leaves, self.graph)
-    #     return children, aux_data
-
-    # @classmethod
-    # def _tree_unflatten(cls, aux_data, children):
-    #     self = object.__new__(cls)
-    #     self.params_treedef, self.params_leaves, self.graph = aux_data
-    #     (self.unconditional,) = children
-    #     return self
-
     @property
     def params(self):
         return jax.tree.unflatten(self.params_treedef, self.params_leaves)
@@ -478,13 +466,6 @@ class ModuleReconstructor(nnx.Pytree):
         if self.graph is not None:
             state_or_module = nnx.merge(self.graph, state_or_module)
         return f"ModuleReconstructor:{state_or_module}"
-
-
-# jax.tree_util.register_pytree_node(
-#     ModuleReconstructor,
-#     ModuleReconstructor._tree_flatten,
-#     ModuleReconstructor._tree_unflatten,
-# )
 
 
 @nnx.dataclass

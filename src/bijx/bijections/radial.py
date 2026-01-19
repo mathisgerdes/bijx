@@ -86,14 +86,14 @@ class Radial(ApplyBijection):
     @property
     def scale(self) -> jax.Array:
         """Positive scaling factors."""
-        return jnp.exp(self.log_scale.value)
+        return jnp.exp(self.log_scale)
 
     def apply(
         self, x: jax.Array, log_density: jax.Array, reverse: bool = False, **kwargs
     ):
         """Apply radial transformation, forward or reverse."""
 
-        x_centered = x - self.center.value
+        x_centered = x - self.center
         x_scaled = x_centered * self.scale
 
         r_in = jnp.linalg.norm(x_scaled, axis=-1, keepdims=False)
@@ -120,7 +120,7 @@ class Radial(ApplyBijection):
 
         y_scaled = jnp.expand_dims(ratio, -1) * x_scaled
         y_centered = y_scaled / self.scale
-        y = y_centered + self.center.value
+        y = y_centered + self.center
 
         # Log-determinant of the Jacobian: log f'(r) + (n-1) log(f(r)/r)
         log_det_radial = mld_scalar + (1 - x.shape[-1]) * log_ratio_term
@@ -166,14 +166,14 @@ class RadialConditional(ApplyBijection):
     @property
     def scale(self) -> jax.Array:
         """Positive scaling factors."""
-        return jnp.exp(self.log_scale.value)
+        return jnp.exp(self.log_scale)
 
     def apply(
         self, x: jax.Array, log_density: jax.Array, reverse: bool = False, **kwargs
     ):
         """Apply radial transformation, forward or reverse."""
 
-        x_centered = x - self.center.value
+        x_centered = x - self.center
         x_scaled = x_centered * self.scale
 
         r_in = jnp.linalg.norm(x_scaled, axis=-1, keepdims=False)
@@ -199,7 +199,7 @@ class RadialConditional(ApplyBijection):
 
         y_scaled = jnp.expand_dims(ratio, -1) * x_scaled
         y_centered = y_scaled / self.scale
-        y = y_centered + self.center.value
+        y = y_centered + self.center
 
         # Log-determinant of the Jacobian: log f'(r) + (n-1) log(f(r)/r)
         log_det_radial = mld_scalar + (1 - x.shape[-1]) * log_ratio_term

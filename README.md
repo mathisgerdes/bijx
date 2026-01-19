@@ -176,7 +176,9 @@ This library extends research software developed for the following publications,
 
 - **[Learning Lattice Quantum Field Theories with Equivariant Continuous Flows](https://arxiv.org/abs/2207.00283)**
 
-- **[Continuous Normalizing Flows for Lattice Gauge Theories](https://arxiv.org/abs/2410.13161)**
+- **[Non-Perturbative Trivializing Flows for Lattice Gauge Theories](https://arxiv.org/abs/2410.13161)**
+
+- **[Analytic Bijections for Smooth and Interpretable Normalizing Flows](https://arxiv.org/abs/2601.10774)**
 
 ## Module Layout
 

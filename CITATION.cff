@@ -32,7 +32,6 @@ preferred-citation:
   type: article
   url: "https://joss.theoj.org/papers/10.21105/joss.09521"
   volume: 10
-title: "Bijx: Bijections and normalizing flows with JAX/NNX"
 
 # Related publications that used precursor software now incorporated in bijx
 references:
@@ -56,9 +55,10 @@ references:
     year: 2023
     doi: 10.21468/SciPostPhys.15.6.238
     url: "https://arxiv.org/abs/2207.00283"
+    notes: "arxiv:2207.00283"
 
   - type: article
-    title: "Continuous Normalizing Flows for Lattice Gauge Theories"
+    title: "Non-Perturbative Trivializing Flows for Lattice Gauge Theories"
     authors:
       - family-names: Gerdes
         given-names: Mathis
@@ -68,7 +68,21 @@ references:
         given-names: Roberto
       - family-names: Cheng
         given-names: Miranda C. N.
-    year: 2024
-    doi: 10.48550/arXiv.2410.13161
+    journal: "Phys. Rev. D"
+    volume: 112
+    year: 2025
+    doi: "https://doi.org/10.1103/31d5-hvp6"
     url: "https://arxiv.org/abs/2410.13161"
-    notes: "Preprint"
+    notes: "arxiv:2410.13161"
+
+  - type: article
+    title: "Analytic Bijections for Smooth and Interpretable Normalizing Flows"
+    authors:
+      - family-names: Gerdes
+        given-names: Mathis
+      - family-names: Cheng
+        given-names: Miranda C. N.
+    year: 2026
+    doi: 10.48550/arXiv.2601.10774
+    url: "https://arxiv.org/abs/2601.10774"
+    notes: "arxiv:2601.10774"

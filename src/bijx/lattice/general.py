@@ -33,6 +33,7 @@ def roll_lattice(lattice, loc, invert=False):
         >>> shifted[0, 0] == lattice[0, 1]
         Array(True, dtype=bool)
     """
+    loc = tuple(loc)
     dims = tuple(range(len(loc)))
     if invert:
         lattice = jnp.roll(lattice, loc, dims)

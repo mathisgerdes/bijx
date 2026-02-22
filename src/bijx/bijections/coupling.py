@@ -462,7 +462,7 @@ class ModuleReconstructor(nnx.Pytree):
         raise TypeError(f"Unsupported parameter type: {type(params)}")
 
     def __repr__(self):
-        state_or_module = self.params
+        state_or_module = nnx.merge_state(self.unconditional, self.params)
         if self.graph is not None:
             state_or_module = nnx.merge(self.graph, state_or_module)
         return f"ModuleReconstructor:{state_or_module}"

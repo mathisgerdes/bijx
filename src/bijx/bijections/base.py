@@ -159,7 +159,7 @@ class CondInverse(Bijection):
 
     def forward(self, x, log_density, **kwargs):
         return jax.lax.cond(
-            self.invert,
+            self.invert.get_value(),
             lambda x, ld, kw: self.bijection.reverse(x, ld, **kw),
             lambda x, ld, kw: self.bijection.forward(x, ld, **kw),
             x,
@@ -169,7 +169,7 @@ class CondInverse(Bijection):
 
     def reverse(self, x, log_density, **kwargs):
         return jax.lax.cond(
-            self.invert,
+            self.invert.get_value(),
             lambda x, ld, kw: self.bijection.forward(x, ld, **kw),
             lambda x, ld, kw: self.bijection.reverse(x, ld, **kw),
             x,

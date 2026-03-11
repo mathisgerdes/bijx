@@ -185,7 +185,7 @@ class BufferedSampler(Distribution):
             self.buffer_index.get_value() >= self.buffer_size,
             lambda sampler: (
                 sampler,
-                jnp.zeros_like(self.buffer_index),
+                jnp.zeros_like(self.buffer_index.get_value()),
                 sampler.sample(
                     (self.buffer_size,),
                     rng=rng,

@@ -89,7 +89,7 @@ class SpectrumScaling(ApplyBijection):
 
     def apply(self, x, log_density, reverse=False, **kwargs):
         x, delta = self.scale(x, reverse=reverse)
-        return x, log_density - delta if reverse else log_density + delta
+        return x, log_density + delta if reverse else log_density - delta
 
 
 class FreeTheoryScaling(SpectrumScaling):

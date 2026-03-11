@@ -31,14 +31,14 @@ class RayTransform(Bijection):
     def __init__(self, bijection: Bijection):
         self.bijection = bijection
 
-    def forward(self, x, ld):
-        offset, _ = self.bijection.forward(jnp.zeros(()), jnp.zeros(()))
-        y, ld = self.bijection.forward(x, ld)
+    def forward(self, x, ld, **kwargs):
+        offset, _ = self.bijection.forward(jnp.zeros(()), jnp.zeros(()), **kwargs)
+        y, ld = self.bijection.forward(x, ld, **kwargs)
         return y - offset, ld
 
-    def reverse(self, y, ld):
-        offset, _ = self.bijection.forward(jnp.zeros(()), jnp.zeros(()))
-        return self.bijection.reverse(y + offset, ld)
+    def reverse(self, y, ld, **kwargs):
+        offset, _ = self.bijection.forward(jnp.zeros(()), jnp.zeros(()), **kwargs)
+        return self.bijection.reverse(y + offset, ld, **kwargs)
 
 
 class Radial(ApplyBijection):
@@ -101,12 +101,12 @@ class Radial(ApplyBijection):
 
         if reverse:
             r_out, mld_scalar = self.scalar_bijection.reverse(
-                r_in, jnp.zeros_like(r_in)
+                r_in, jnp.zeros_like(r_in), **kwargs
             )
             ratio = jnp.abs(r_out / r_safe)
         else:  # forward
             r_out, mld_scalar = self.scalar_bijection.forward(
-                r_in, jnp.zeros_like(r_in)
+                r_in, jnp.zeros_like(r_in), **kwargs
             )
             ratio = jnp.abs(r_out / r_safe)
 
@@ -184,10 +184,10 @@ class RadialConditional(ApplyBijection):
         bijection = self.reconst.from_params(params, autovmap=True)
 
         if reverse:
-            r_out, mld_scalar = bijection.reverse(r_in, jnp.zeros_like(r_in))
+            r_out, mld_scalar = bijection.reverse(r_in, jnp.zeros_like(r_in), **kwargs)
             ratio = jnp.abs(r_out / r_safe)
         else:  # forward
-            r_out, mld_scalar = bijection.forward(r_in, jnp.zeros_like(r_in))
+            r_out, mld_scalar = bijection.forward(r_in, jnp.zeros_like(r_in), **kwargs)
             ratio = jnp.abs(r_out / r_safe)
 
         # Stable evaluation of log(f(r)/r) with correct r→0 limit log f'(0)

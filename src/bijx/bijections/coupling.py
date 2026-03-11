@@ -221,7 +221,7 @@ class BinaryMask(Bijection):
 
         return output
 
-    def forward(self, x, log_density):
+    def forward(self, x, log_density, **kwargs):
         """Split input as bijection forward pass.
 
         When used as a bijection, forward pass splits the input into
@@ -230,13 +230,14 @@ class BinaryMask(Bijection):
         Args:
             x: Input array to split.
             log_density: Input log density (unchanged).
+            **kwargs: Additional arguments (ignored; for API consistency).
 
         Returns:
             Tuple of ((primary_part, secondary_part), unchanged_log_density).
         """
         return self.split(x), log_density
 
-    def reverse(self, x, log_density):
+    def reverse(self, x, log_density, **kwargs):
         """Merge parts as bijection reverse pass.
 
         When used as a bijection, reverse pass merges the split parts
@@ -245,6 +246,7 @@ class BinaryMask(Bijection):
         Args:
             x: Tuple of (primary_part, secondary_part) to merge.
             log_density: Input log density (unchanged).
+            **kwargs: Additional arguments (ignored; for API consistency).
 
         Returns:
             Tuple of (merged_array, unchanged_log_density).
@@ -682,7 +684,7 @@ class GeneralCouplingLayer(Bijection):
 
         method = bijection.reverse if inverse else bijection.forward
         active, delta_log_density = method(
-            active, jnp.zeros(dens_shape), input_ranks=(active_rank, 0)
+            active, jnp.zeros(dens_shape), input_ranks=(active_rank, 0), **kwargs
         )
 
         if not self.split:

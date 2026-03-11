@@ -107,13 +107,13 @@ class Transformed(Distribution):
 
         Args:
             x: Points at which to evaluate log density.
-            **kwargs: Additional arguments passed to bijection.
+            **kwargs: Additional arguments passed to bijection and prior.
 
         Returns:
             Log density values at the input points.
         """
         log_density = jnp.zeros(self.get_batch_shape(x))
-        x, delta = self.bijection.reverse(x, log_density)
+        x, delta = self.bijection.reverse(x, log_density, **kwargs)
         return self.prior.log_density(x, **kwargs) - delta
 
 

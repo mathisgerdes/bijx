@@ -405,11 +405,12 @@ class MultivariateNormal(ArrayDistribution):
         cholesky = _cov_to_cholesky(cov)
         return cls(mean, cholesky, rngs=rngs, var_cls=var_cls, epsilon=epsilon)
 
-    def log_density(self, x):
+    def log_density(self, x, **kwargs):
         """Compute log probability density at given points.
 
         Args:
             x: Points at which to evaluate density, shape (..., dim).
+            **kwargs: Additional arguments (ignored; for API consistency).
 
         Returns:
             Log density values with batch dimensions matching input.
@@ -425,12 +426,13 @@ class MultivariateNormal(ArrayDistribution):
         safe_diagonal = jnp.abs(cholesky.diagonal()) + self.epsilon
         return log_density - jnp.log(safe_diagonal).sum(-1)
 
-    def sample(self, batch_shape=(), rng=None):
+    def sample(self, batch_shape=(), rng=None, **kwargs):
         """Generate samples from the distribution.
 
         Args:
             batch_shape: Shape of batch dimensions for vectorized sampling.
             rng: Random key for sampling, or None to use internal rngs.
+            **kwargs: Additional arguments (ignored; for API consistency).
 
         Returns:
             Tuple of (samples, log_densities) where samples have shape
@@ -580,11 +582,12 @@ class DiagonalNormal(ArrayDistribution):
     def scales(self):
         return jnp.abs(self.scales_bare) + self.epsilon
 
-    def log_density(self, x):
+    def log_density(self, x, **kwargs):
         """Compute log probability density at given points.
 
         Args:
             x: Points at which to evaluate density, shape (..., dim).
+            **kwargs: Additional arguments (ignored; for API consistency).
 
         Returns:
             Log density values with batch dimensions matching input.
@@ -595,12 +598,13 @@ class DiagonalNormal(ArrayDistribution):
         log_density -= 0.5 * self.dim * jnp.log(2 * jnp.pi)
         return log_density - jnp.sum(jnp.log(self.scales), axis=-1)
 
-    def sample(self, batch_shape=(), rng=None):
+    def sample(self, batch_shape=(), rng=None, **kwargs):
         """Generate samples from the distribution.
 
         Args:
             batch_shape: Shape of batch dimensions for vectorized sampling.
             rng: Random key for sampling, or None to use internal rngs.
+            **kwargs: Additional arguments (ignored; for API consistency).
 
         Returns:
             Tuple of (samples, log_densities) where samples have shape
@@ -653,26 +657,26 @@ class MixtureStack(Distribution):
     def get_batch_shape(self, x):
         return self._dist(0).get_batch_shape(x)
 
-    def log_density(self, x):
-        lds = nnx.vmap(lambda d: d.log_density(x), out_axes=-1)(self.stack)
+    def log_density(self, x, **kwargs):
+        lds = nnx.vmap(lambda d: d.log_density(x, **kwargs), out_axes=-1)(self.stack)
         return jax.nn.logsumexp(lds + self.weights_log_normalized, axis=-1)
 
-    @partial(jax.vmap, in_axes=(None, 0))
-    def _sample(self, rng):
+    @partial(jax.vmap, in_axes=(None, 0, None))
+    def _sample(self, rng, kwargs):
         rng_choice, rng_sample = jax.random.split(rng)
         component_indices = jax.random.choice(
             rng_choice,
             self.dist_count,
             p=self.weights_normalized,
         )
-        return self._dist(component_indices).sample((), rng=rng_sample)[0]
+        return self._dist(component_indices).sample((), rng=rng_sample, **kwargs)[0]
 
-    def sample(self, batch_shape=(), rng=None):
+    def sample(self, batch_shape=(), rng=None, **kwargs):
         total = int(np.prod(batch_shape) if batch_shape else 1)
         rng = self._get_rng(rng)
-        samples = self._sample(jax.random.split(rng, total))
+        samples = self._sample(jax.random.split(rng, total), kwargs)
         samples = jax.tree.map(lambda x: x.reshape(*batch_shape, *x.shape[1:]), samples)
-        log_density = self.log_density(samples)
+        log_density = self.log_density(samples, **kwargs)
         return samples, log_density
 
 
@@ -736,8 +740,8 @@ class GaussianMixture(Distribution):
     def weights(self):
         return self.mixture.weights_normalized
 
-    def log_density(self, x):
-        return self.mixture.log_density(x)
+    def log_density(self, x, **kwargs):
+        return self.mixture.log_density(x, **kwargs)
 
-    def sample(self, batch_shape=(), rng=None):
-        return self.mixture.sample(batch_shape, rng)
+    def sample(self, batch_shape=(), rng=None, **kwargs):
+        return self.mixture.sample(batch_shape, rng=rng, **kwargs)

@@ -43,10 +43,10 @@ class MetaLayer(Bijection):
         self._forward = forward
         self._reverse = reverse
 
-    def forward(self, x, log_density):
+    def forward(self, x, log_density, **kwargs):
         return self._forward(x), log_density
 
-    def reverse(self, x, log_density):
+    def reverse(self, x, log_density, **kwargs):
         return self._reverse(x), log_density
 
 

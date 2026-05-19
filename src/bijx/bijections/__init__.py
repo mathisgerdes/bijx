@@ -53,6 +53,8 @@ __all__ = [
     "ModuleReconstructor",
     "AutoVmapReconstructor",
     "GeneralCouplingLayer",
+    "stack_bijections",
+    "extract_init",
     # -- fourier -- #
     "SpectrumScaling",
     "FreeTheoryScaling",

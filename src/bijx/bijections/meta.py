@@ -17,6 +17,7 @@ import typing as tp
 from functools import partial
 
 import jax.numpy as jnp
+from flax import nnx
 
 from .base import Bijection
 
@@ -170,7 +171,7 @@ class Partial(Bijection):
             **kwargs: Keyword arguments to fix for all calls.
         """
         self.bijection = bijection
-        self.kwargs = kwargs
+        self.kwargs = nnx.data(kwargs)
 
     def _kwargs(self, kwargs):
         """Update default kwargs with additional kwargs."""

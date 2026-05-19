@@ -83,6 +83,38 @@ class Bijection(nnx.Module):
         """
         return Inverse(self)
 
+    def apply(self, x, log_density, reverse=False, **kwargs):
+        """Apply the bijection in either direction.
+
+        Dispatches to :meth:`forward` or :meth:`reverse` based on ``reverse``.
+        If ``reverse`` is a Python ``bool`` the dispatch is static (only the
+        chosen branch is traced); otherwise ``jax.lax.cond`` is used so a
+        traced boolean array is supported, at the cost of tracing both
+        branches.
+
+        Args:
+            x: Input data of any pytree structure.
+            log_density: Log density values corresponding to the input.
+            reverse: If True, apply reverse transformation; if False, forward.
+                May be a Python bool or a JAX boolean scalar.
+            **kwargs: Additional transformation-specific arguments.
+
+        Returns:
+            Tuple of (transformed_data, updated_log_density).
+        """
+        if isinstance(reverse, bool):
+            if reverse:
+                return self.reverse(x, log_density, **kwargs)
+            return self.forward(x, log_density, **kwargs)
+        return jax.lax.cond(
+            reverse,
+            lambda a, b, kw: self.reverse(a, b, **kw),
+            lambda a, b, kw: self.forward(a, b, **kw),
+            x,
+            log_density,
+            kwargs,
+        )
+
     def __call__(self, x, log_density, **kwargs):
         """Apply bijection using forward transformation by default."""
         return self.forward(x, log_density, **kwargs)
@@ -103,6 +135,13 @@ class ApplyBijection(Bijection):
     of their implementation.
     Instead of duplicating code in separate forward() and reverse() methods,
     subclasses implement a single apply() method with a ``reverse`` parameter.
+
+    Note:
+        This overrides :meth:`Bijection.apply` and inverts its role: on the
+        base class ``apply`` is a dispatcher into ``forward``/``reverse``,
+        whereas here ``apply`` is the primitive that ``forward`` and
+        ``reverse`` delegate to. The externally observable contract is
+        unchanged.
 
     Example:
         >>> class MyBijection(ApplyBijection):

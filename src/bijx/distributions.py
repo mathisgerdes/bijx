@@ -19,6 +19,7 @@ from .utils import Const, ParamSpec, ShapeInfo, default_wrap
 
 __all__ = [
     "Distribution",
+    "PartialDist",
     "ArrayDistribution",
     "IndependentNormal",
     "IndependentUniform",
@@ -53,7 +54,7 @@ class Distribution(nnx.Module):
     """
 
     def __init__(self, rngs: nnx.Rngs | None = None):
-        self.rngs = rngs
+        self.rngs = rngs.fork() if rngs is not None else None
 
     def _get_rng(self, rng: ftp.PRNGKey | None) -> ftp.PRNGKey:
         """Get random key from explicit argument or internal rngs.
@@ -63,7 +64,7 @@ class Distribution(nnx.Module):
         """
         if rng is None:
             if self.rngs is None:
-                raise ValueError("rngs must be provided")
+                raise ValueError("rng must be passed if distribution.rngs=None")
             rng = self.rngs.sample()
         return rng
 
@@ -124,6 +125,51 @@ class Distribution(nnx.Module):
         return jnp.exp(self.log_density(x, **kwargs))
 
 
+class PartialDist(Distribution):
+    """Distribution wrapper that fixes keyword arguments.
+
+    Mirrors :class:`bijx.bijections.Partial` for distributions: creates a new
+    distribution by partially applying keyword arguments to ``sample`` and
+    ``log_density`` of an existing distribution. Call-time kwargs override
+    the fixed ones.
+
+    Attributes ``rngs`` and ``event_shape`` are forwarded to the wrapped
+    distribution.
+    """
+
+    def __init__(self, dist: "Distribution", **kwargs):
+        """Initialize partial distribution with fixed keyword arguments.
+
+        Args:
+            dist: The distribution to wrap.
+            **kwargs: Keyword arguments to fix for all calls.
+        """
+        self.dist = dist
+        self.kwargs = nnx.data(kwargs)
+
+    def _kwargs(self, kwargs):
+        full_kwargs = self.kwargs.copy()
+        full_kwargs.update(kwargs)
+        return full_kwargs
+
+    @property
+    def rngs(self):
+        return self.dist.rngs
+
+    @property
+    def event_shape(self):
+        return self.dist.event_shape
+
+    def get_batch_shape(self, x):
+        return self.dist.get_batch_shape(x)
+
+    def sample(self, batch_shape=(), rng=None, **kwargs):
+        return self.dist.sample(batch_shape, rng=rng, **self._kwargs(kwargs))
+
+    def log_density(self, x, **kwargs):
+        return self.dist.log_density(x, **self._kwargs(kwargs))
+
+
 class ArrayDistribution(Distribution):
     """Base class for distributions over multi-dimensional arrays.
 
@@ -137,6 +183,9 @@ class ArrayDistribution(Distribution):
     Args:
         event_shape: Shape of individual samples (event dimensions).
         rngs: Optional random number generator state.
+        assert_shape: If True, ``get_batch_shape`` requires trailing dimensions to
+            match ``event_shape`` exactly. If False, batch shape is inferred from
+            ``event_dim`` only (trailing rank), without checking event sizes.
 
     Example:
         >>> # 2D distribution (e.g., for images or lattice fields)
@@ -146,10 +195,20 @@ class ArrayDistribution(Distribution):
         >>> assert log_p.shape == (100,)  # batch only
     """
 
-    def __init__(self, event_shape: tuple[int, ...], rngs: nnx.Rngs | None = None):
+    def __init__(
+        self,
+        event_shape: tuple[int, ...],
+        rngs: nnx.Rngs | None = None,
+        *,
+        assert_shape: bool = True,
+    ):
         super().__init__(rngs)
         self.event_shape = event_shape
-        self.shape_info = ShapeInfo(event_shape=event_shape)
+        self.assert_shape = assert_shape
+        if assert_shape:
+            self.shape_info = ShapeInfo(event_shape=event_shape)
+        else:
+            self.shape_info = ShapeInfo(event_dim=len(event_shape))
 
     @property
     def event_dim(self):

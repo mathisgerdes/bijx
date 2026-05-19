@@ -48,7 +48,7 @@ class TestDistributionBase:
                 return jnp.zeros_like(x)
 
         dist = TestDist()
-        with pytest.raises(ValueError, match="rngs must be provided"):
+        with pytest.raises(ValueError, match="rng must be passed"):
             dist.sample()
 
     def test_rng_handling_with_internal(self, rng_key):
@@ -124,6 +124,21 @@ class TestArrayDistribution:
             x = jnp.zeros(array_shape)
             batch_shape = dist.get_batch_shape(x)
             assert batch_shape == expected_batch
+
+    def test_batch_shape_without_assert_shape(self):
+        """Batch shape from event_dim only when assert_shape is False."""
+        dist = ArrayDistribution(event_shape=(5,), assert_shape=False)
+
+        x = jnp.zeros((2, 3, 7))
+        assert dist.get_batch_shape(x) == (2, 3)
+
+    def test_batch_shape_assert_shape_mismatch(self):
+        """Mismatched trailing shape raises when assert_shape is True."""
+        dist = ArrayDistribution(event_shape=(5,))
+
+        x = jnp.zeros((2, 7))
+        with pytest.raises(AssertionError, match="event shape mismatch"):
+            dist.get_batch_shape(x)
 
 
 class TestIndependentNormal:

@@ -261,8 +261,13 @@ class GaussianRBFFeatures(NonlinearFeatures):
     r"""Gaussian radial basis features with learnable centers and widths.
 
     Each feature is the antisymmetrized RBF
-    $$g_k(\phi) = \exp\!\left(-\frac{(\phi - c_k)^2}{2 \sigma_k^2}\right)
-                 - \exp\!\left(-\frac{(\phi + c_k)^2}{2 \sigma_k^2}\right),$$
+
+    $$
+    g_k(\phi) =
+    \exp\!\left(-\frac{(\phi - c_k)^2}{2 \sigma_k^2}\right)
+    - \exp\!\left(-\frac{(\phi + c_k)^2}{2 \sigma_k^2}\right),
+    $$
+
     with $c_k > 0$ (parameterized via softplus so it stays positive under training).
     The result is **odd in $\phi$** by construction, so a linear map without bias
     produces a $\mathbb{Z}_2$-equivariant vector field — matching the inductive

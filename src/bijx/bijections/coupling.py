@@ -29,7 +29,7 @@ import numpy as np
 from flax import nnx
 from jax_autovmap import autovmap
 
-from .base import Bijection
+from .base import Bijection, Chain
 
 
 def _indices_to_mask(indices, event_shape):
@@ -359,6 +359,10 @@ class ModuleReconstructor(nnx.Pytree):
         self.unconditional = nnx.data(unconditional)
 
     @property
+    def params_flat(self):
+        return jnp.concatenate([p for p in self.params_leaves])
+
+    @property
     def params(self):
         return jax.tree.unflatten(self.params_treedef, self.params_leaves)
 
@@ -679,7 +683,7 @@ class GeneralCouplingLayer(Bijection):
             broadcast_rank = len(self.mask.event_shape) - active_rank
             dens_shape = jnp.shape(log_density) + (1,) * broadcast_rank
 
-        params = self.embedding_net(passive)
+        params = self.embedding_net(passive, **kwargs)
         bijection = self.bijection_reconstructor.from_params(params, autovmap=True)
 
         method = bijection.reverse if inverse else bijection.forward
@@ -717,3 +721,90 @@ class GeneralCouplingLayer(Bijection):
             inverse=True,
             **kwargs,
         )
+
+
+def _chain_if_sequence(generator):
+    if not isinstance(generator, tuple | list):
+        return generator
+
+    def _generator(rngs):
+        return Chain(*[gen(rngs=rngs) for gen in generator])
+
+    return _generator
+
+
+def _vmap_rngs(generator, copies):
+    if copies < 2:
+        return generator
+    return nnx.split_rngs(splits=copies)(nnx.vmap(lambda rngs: generator(rngs=rngs)))
+
+
+def stack_bijections(
+    generator,
+    generator_final=None,
+    transform=lambda b: b,
+    copies=1,
+):
+    """Build a bijection generator with ``copies`` vmapped instances.
+
+    ``generator`` is ``rngs -> Bijection`` (or a sequence of such callables,
+    chained in order).
+    For ``copies >= 2``, independent instances are created via ``nnx.vmap``;
+    parameters carry a leading stack axis and forward broadcasts over it.
+
+    Optional ``generator_final`` is chained after the stacked block.
+    ``transform`` post-processes the result (default: identity).
+    Pass :class:`~bijx.ScanChain` to apply the stack sequentially via scan.
+
+    Args:
+        generator: Callable, or sequence of callables, each ``(rngs) -> Bijection``.
+        generator_final: Optional tail callable, chained after ``generator``.
+        transform: ``Bijection -> Bijection`` wrapper applied to the composed module.
+        copies: Number of vmapped copies (ignored when ``copies < 2``).
+
+    Returns:
+        Callable ``rngs -> Bijection`` ready for use with :class:`ModuleReconstructor`.
+    """
+    generator = _chain_if_sequence(generator)
+    generator = _vmap_rngs(generator, copies)
+
+    if generator_final is not None:
+        generator_final = _chain_if_sequence(generator_final)
+
+        def joint_generator(rngs):
+            bij = Chain(generator(rngs=rngs), generator_final(rngs=rngs))
+            return transform(bij)
+
+    else:
+
+        def joint_generator(rngs):
+            return transform(generator(rngs=rngs))
+
+    return joint_generator
+
+
+def extract_init(
+    generator,  # (rngs, *args, **kwargs) -> nnx.Module
+    filter=nnx.Param,
+):
+    """Flax initializer that flattens params from a one-off module build.
+
+    Instantiates ``generator(rngs, *args, **kwargs)``, extracts leaves matching
+    ``filter``, and returns their concatenation as a 1D vector.
+    Useful as ``bias_init`` when initial values should match a fully built bijection.
+
+    Args:
+        generator: Callable ``(rngs, *args, **kwargs) -> nnx.Module``.
+        filter: NNX filter passed to :func:`nnx.split` (default: :class:`nnx.Param`).
+
+    Returns:
+        Initializer ``(rng, *args, **kwargs) -> jax.Array`` suitable for Flax layers.
+    """
+
+    def bias_init(rng, *args, **kwargs):
+        bijection = generator(nnx.Rngs(rng), *args, **kwargs)
+        params = nnx.split(bijection, filter, ...)[1]
+        leaves = [jnp.ravel(x) for x in jax.tree.leaves(params)]
+        return jnp.concatenate(leaves)
+
+    return bias_init

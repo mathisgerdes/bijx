@@ -26,6 +26,7 @@ The orbit construction is implemented somewhat naively, by simply applying
 the group operators to lattice indices and collecting the results.
 """
 
+import types
 import typing as tp
 from functools import partial
 
@@ -587,4 +588,41 @@ class ConvSym(nnx.Module):
         return nnx.Param(kernel)
 
     def __call__(self, inputs: jax.Array) -> jax.Array:
-        return nnx.Conv.__call__(self, inputs)
+        # Unfold orbit-shared params into the full (*kernel_size, in, out) kernel.
+        full_kernel = (
+            self.kernel_params[self.orbits]
+            if self.orbits is not None
+            else self.kernel_params.reshape(self.kernel_shape)
+        )
+
+        # Truncate to the image size so positions beyond the image never alias
+        # via circular wrap (or cause errors with other padding modes).
+        input_spatial = inputs.shape[-(1 + len(self.kernel_size)) : -1]
+        eff_size = tuple(min(k, s) for k, s in zip(self.kernel_size, input_spatial))
+        if eff_size != self.kernel_size:
+            crop = tuple(
+                slice((k - e) // 2, (k - e) // 2 + e)
+                for k, e in zip(self.kernel_size, eff_size)
+            )
+            full_kernel = full_kernel[crop]
+
+        # Forward through nnx.Conv with the pre-built kernel and effective size.
+        proxy = types.SimpleNamespace(
+            kernel_size=eff_size,
+            kernel=nnx.Param(full_kernel),
+            strides=self.strides,
+            input_dilation=self.input_dilation,
+            kernel_dilation=self.kernel_dilation,
+            padding=self.padding,
+            mask=self.mask,
+            in_features=self.in_features,
+            feature_group_count=self.feature_group_count,
+            bias=self.bias,
+            use_bias=self.use_bias,
+            dtype=self.dtype,
+            promote_dtype=self.promote_dtype,
+            conv_general_dilated=self.conv_general_dilated,
+            precision=self.precision,
+            preferred_element_type=self.preferred_element_type,
+        )
+        return nnx.Conv.__call__(proxy, inputs)

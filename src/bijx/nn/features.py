@@ -65,55 +65,40 @@ class NonlinearFeatures(nnx.Module):
         """
         raise NotImplementedError()
 
-    def __call__(
-        self, inputs, local_coupling, flatten_features=True, mask=None, **kwargs
-    ):
-        """Apply feature transformation with automatic divergence computation.
-
-        Computes both the nonlinear feature transformation and its divergence
-        using the provided local coupling matrix. The divergence is computed
-        using vector-Jacobian products to avoid explicit Jacobian
-        matrix construction.
+    def __call__(self, inputs, **kwargs):
+        """Return ``(features, div_map)`` for the given inputs.
 
         Args:
-            inputs: Input data with shape (..., spatial_dims, channels).
-            local_coupling: Local coupling matrix from convolution kernel diagonal.
-            flatten_features: Whether to flatten feature dimensions.
-            mask: Optional mask for selective divergence computation.
-            **kwargs: Additional arguments passed to feature transformation.
+            inputs: Input array with shape ``(..., channels)``.
+            **kwargs: Passed through to :meth:`apply_feature_map`.
 
         Returns:
-            Tuple of (transformed_features, divergence) where:
-                - transformed_features: Nonlinearly transformed input features
-                - divergence: Divergence of the transformation for density tracking
-
-        Note:
-            The local_coupling matrix typically comes from the diagonal elements
-            of a convolution kernel, representing site-wise coupling strengths.
-            The divergence computation uses the vector-Jacobian product for efficiency.
+            features: Flattened feature array ``(..., channels * feature_count)``.
+            div_map: Callable ``(local_coupling, mask=None) -> divergence`` where
+                ``local_coupling`` has shape ``(..., F_total, O)`` (site-dependent)
+                or ``(F_total, O)`` (stationary), with ``F_total = channels *
+                feature_count`` and ``O`` the number of output channels to sum over.
         """
-        # Compute divergence using local couplings (W_xx part of conv kernel)
-        # Feature map is exclusively site-wise
-        orig_channels = inputs.shape[-1]
         apply = partial(self.apply_feature_map, **kwargs)
-        inputs, bwd = jax.vjp(apply, inputs)
+        outputs, bwd = jax.vjp(apply, inputs)
+        outputs_shape = outputs.shape  # (..., C, F) — captured before rebind
 
-        if flatten_features:
-            local_coupling = local_coupling.reshape(orig_channels, orig_channels, -1)
-
-        idc = np.arange(local_coupling.shape[1])
-        cotangent_reshape = (*inputs.shape[:-2], 1, 1)
-        cotangent = jnp.tile(local_coupling[idc, idc], cotangent_reshape)
-
-        if mask is not None:
-            (inputs_grad,) = bwd(cotangent * jnp.expand_dims(mask, (-1, -2)))
-        else:
+        def div_map(local_coupling, mask=None):
+            # local_coupling: (*spatial, F_total, O) or (F_total, O)
+            lc = local_coupling.sum(-1)  # (*spatial, F_total) or (F_total,)
+            if lc.ndim == 1:
+                cotangent = jnp.broadcast_to(
+                    lc.reshape(outputs_shape[-2:]), outputs_shape
+                )
+            else:
+                cotangent = lc.reshape(outputs_shape)
+            if mask is not None:
+                cotangent = cotangent * jnp.expand_dims(mask, (-1, -2))
             (inputs_grad,) = bwd(cotangent)
-        divergence = jnp.sum(inputs_grad, np.arange(1, inputs_grad.ndim))
+            return jnp.sum(inputs_grad, np.arange(1, inputs_grad.ndim))
 
-        if flatten_features:
-            inputs = inputs.reshape(inputs.shape[:-2] + (-1,))
-        return inputs, divergence
+        outputs = outputs.reshape(outputs.shape[:-2] + (-1,))
+        return outputs, div_map
 
 
 class FourierFeatures(NonlinearFeatures):
@@ -130,11 +115,11 @@ class FourierFeatures(NonlinearFeatures):
         rngs: Random number generator state.
 
     Note:
-        The total output size is input_channels × feature_count.
+        The total output size is input_channels * feature_count.
 
     Example:
         >>> features = FourierFeatures(16, input_channels=1, rngs=rngs)
-        >>> transformed, div = features(phi[..., None], local_coupling)
+        >>> transformed, div_map = features(phi[..., None])
     """
 
     def __init__(
@@ -189,7 +174,7 @@ class PolynomialFeatures(NonlinearFeatures):
     Example:
         >>> # Polynomial features with linear and quadratic terms
         >>> features = PolynomialFeatures([1, 2], input_channels=1, rngs=rngs)
-        >>> transformed, div = features(jnp.ones((1, 1)), jnp.ones((1, 2)))
+        >>> transformed, div_map = features(jnp.ones((1, 1)))
 
     Important:
         Inclusion of powers other than 0 and 1 can lead to numerical instability
@@ -218,6 +203,116 @@ class PolynomialFeatures(NonlinearFeatures):
         """
         features = jnp.stack([phi_lin**p for p in self.powers], axis=-1)
         return features
+
+
+class DecayingFourierFeatures(NonlinearFeatures):
+    r"""Sinusoidal features damped by a learnable Gaussian envelope.
+
+    Each feature is
+    $$g_k(\phi) = \sin(\omega_k \phi) \, \exp\!\left(-\frac{\phi^2}{2 \ell^2}\right),$$
+    where $\ell > 0$ is a learnable (per-input-channel) decay length.
+
+    Matches :class:`FourierFeatures` near $\phi=0$ ($g_k'(0) = \omega_k$ identically),
+    but suppresses the field at large $|\phi|$ — killing the periodic wrap-around
+    that bare ``sin`` features inherit. Odd in $\phi$, so a linear map without bias
+    yields a $\mathbb{Z}_2$-equivariant vector field, just like ``FourierFeatures``.
+
+    With ``log_decay_length_init`` large (default 3, so $\ell \approx 20$), the envelope
+    is essentially flat across typical data ranges and the features start out
+    indistinguishable from :class:`FourierFeatures`. Training can then shrink
+    $\ell$ if a tighter envelope helps.
+
+    Args:
+        feature_count: Number of sinusoidal features per input channel.
+        input_channels: Number of input channels to transform.
+        freq_init: Initializer for frequency parameters.
+        log_decay_length_init: Initial value of $\log \ell$ (per input channel).
+        rngs: Random number generator state.
+    """
+
+    def __init__(
+        self,
+        feature_count: int,
+        input_channels: int,
+        *,
+        freq_init: tp.Callable = nnx.initializers.uniform(5.0),
+        log_decay_length_init: float = 3.0,
+        rngs: nnx.Rngs | None = None,
+    ):
+        super().__init__(input_channels * feature_count, rngs=rngs)
+        self.feature_count = feature_count
+
+        self.phi_freq = nnx.Param(
+            freq_init(rngs.params(), (input_channels, feature_count))
+        )
+        self.log_decay_length = nnx.Param(
+            jnp.full((input_channels,), log_decay_length_init, dtype=jnp.float32)
+        )
+
+    def apply_feature_map(self, phi_lin, **kwargs):
+        decay_length = jnp.exp(self.log_decay_length)
+        # phi_lin: (..., C); envelope per-channel
+        envelope = jnp.exp(-0.5 * (phi_lin / decay_length) ** 2)  # (..., C)
+        sinusoid = jnp.sin(jnp.einsum("...i,ij->...ij", phi_lin, self.phi_freq))
+        return sinusoid * envelope[..., None]
+
+
+class GaussianRBFFeatures(NonlinearFeatures):
+    r"""Gaussian radial basis features with learnable centers and widths.
+
+    Each feature is the antisymmetrized RBF
+    $$g_k(\phi) = \exp\!\left(-\frac{(\phi - c_k)^2}{2 \sigma_k^2}\right)
+                 - \exp\!\left(-\frac{(\phi + c_k)^2}{2 \sigma_k^2}\right),$$
+    with $c_k > 0$ (parameterized via softplus so it stays positive under training).
+    The result is **odd in $\phi$** by construction, so a linear map without bias
+    produces a $\mathbb{Z}_2$-equivariant vector field — matching the inductive
+    bias that $\sin$ features have in ConvVF, while also being non-periodic,
+    smooth, and decaying outside the data range.
+
+    Args:
+        feature_count: Number of RBFs per input channel.
+        input_channels: Number of input channels.
+        center_max: Centers $c_k$ are initialized evenly on $(0, c_{\max}]$.
+            Default ``3.0`` covers typical $\phi^4$ field values.
+        log_sigma_init: Initial value of $\log \sigma$. Default ``log(0.8)``.
+        rngs: Random number generator state.
+    """
+
+    def __init__(
+        self,
+        feature_count: int,
+        input_channels: int,
+        *,
+        center_max: float = 3.0,
+        log_sigma_init: float = float(np.log(0.8)),
+        rngs: nnx.Rngs | None = None,
+    ):
+        super().__init__(input_channels * feature_count, rngs=rngs)
+        self.feature_count = feature_count
+
+        # init centers evenly on (0, center_max]; store the pre-softplus value
+        centers_init = jnp.linspace(
+            center_max / feature_count, center_max, feature_count
+        )
+        # invert softplus: c = log(exp(c_pos) - 1)
+        raw_init = jnp.log(jnp.expm1(centers_init))
+        raw_init = jnp.broadcast_to(raw_init, (input_channels, feature_count))
+        self._raw_centers = nnx.Param(jnp.asarray(raw_init, dtype=jnp.float32))
+        self.log_sigma = nnx.Param(
+            jnp.full((input_channels, feature_count), log_sigma_init, dtype=jnp.float32)
+        )
+
+    @property
+    def centers(self):
+        return jax.nn.softplus(self._raw_centers)
+
+    def apply_feature_map(self, phi_lin, **kwargs):
+        sigma = jnp.exp(self.log_sigma)
+        c = self.centers
+        phi = phi_lin[..., :, None]
+        plus = jnp.exp(-0.5 * ((phi - c) / sigma) ** 2)
+        minus = jnp.exp(-0.5 * ((phi + c) / sigma) ** 2)
+        return plus - minus
 
 
 class ConcatFeatures(NonlinearFeatures):

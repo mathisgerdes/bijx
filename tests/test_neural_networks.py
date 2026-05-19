@@ -168,18 +168,19 @@ class TestFeatures:
             feature_count=8, input_channels=1, rngs=nnx.Rngs(rng_key)
         )
         x = jnp.ones((4, 4, 1))
-        # Local coupling diagonal per channel and per feature
-        local = jnp.ones((1, 1, feats.feature_count))
-        y, div = feats(x, local_coupling=local)
+        y, div_map = feats(x)
         assert y.shape == (4, 4, 8)
+        local = jnp.ones((feats.feature_count, 1))
+        div = div_map(local)
         assert jnp.all(jnp.isfinite(div))
 
     def test_polynomial_features_basic(self, rng_key):
         feats = PolynomialFeatures([1, 2, 3], input_channels=1, rngs=nnx.Rngs(rng_key))
         x = jnp.ones((2, 2, 1))
-        local = jnp.ones((1, 1, len(feats.powers)))
-        y, div = feats(x, local_coupling=local)
+        y, div_map = feats(x)
         assert y.shape == (2, 2, 3)
+        local = jnp.ones((len(feats.powers), 1))
+        div = div_map(local)
         assert jnp.all(jnp.isfinite(div))
 
     def test_concat_features(self, rng_key):
@@ -188,9 +189,7 @@ class TestFeatures:
         f2 = PolynomialFeatures([1, 2], input_channels=1, rngs=r)
         combo = ConcatFeatures([f1, f2], rngs=r)
         x = jnp.ones((3, 3, 1))
-        # Sum of features across components
-        local = jnp.ones((1, 1, f1.feature_count + len(f2.powers)))
-        y, _ = combo(x, local_coupling=local)
+        y, _ = combo(x)
         assert y.shape == (3, 3, 6)
 
 

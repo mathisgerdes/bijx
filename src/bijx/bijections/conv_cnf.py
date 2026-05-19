@@ -129,7 +129,8 @@ class ConvVF(nnx.Module):
         # contract with feature superposition
         w00 = jnp.einsum("if,io->fo", feature_superposition, w00)
 
-        features, div = self.feature_map(x, w00)
+        features, div_map = self.feature_map(x)
+        div = div_map(w00)
         features = jnp.einsum("fw,...w->...f", feature_superposition, features)
         grad_phi = conv(features)
 

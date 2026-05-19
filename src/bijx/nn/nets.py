@@ -164,7 +164,7 @@ class ResNet(nnx.Module):
             rngs=rngs,
         )
 
-        self.dropout = nnx.Dropout(rate=dropout)
+        self.dropout = nnx.Dropout(rate=dropout, rngs=rngs)
 
     def __call__(self, x):
         """Apply residual network to input features.
@@ -189,19 +189,17 @@ class ResNet(nnx.Module):
 class MLP(nnx.Module):
     """Multi-layer perceptron for general function approximation.
 
-    Implements a standard feedforward neural network with customizable
-    architecture and activation functions.
-
     Args:
         in_features: Input feature dimensionality.
         out_features: Output feature dimensionality.
         hidden_features: List of hidden layer widths.
         activation: Activation function for hidden layers.
         final_activation: Activation function for output layer.
+        final_bias_init: Initialization for final layer bias.
+        final_kernel_init: Initialization for final layer weights.
         rngs: Random number generator state.
 
     Example:
-        >>> # MLP for coupling layer transformation
         >>> net = MLP(
         ...     in_features=32, out_features=64,
         ...     hidden_features=[128, 256, 128],
@@ -214,12 +212,18 @@ class MLP(nnx.Module):
         self,
         in_features: int,
         out_features: int,
-        hidden_features: list[int] = [1024, 1024],
+        hidden_features: list[int] | None = None,
         *,
+        width: int = 1024,
+        depth: int = 2,
         activation: tp.Callable = nnx.gelu,
         final_activation: tp.Callable = lambda x: x,
+        final_bias_init: tp.Callable = nnx.initializers.zeros,
+        final_kernel_init: tp.Callable = nnx.initializers.lecun_normal(),
         rngs: nnx.Rngs,
     ):
+        if hidden_features is None:
+            hidden_features = [width] * depth
         self.activation = activation
         self.final_activation = final_activation
 
@@ -239,21 +243,17 @@ class MLP(nnx.Module):
             )
         layers.append(
             nnx.Linear(
-                in_features=hidden_features[-1], out_features=out_features, rngs=rngs
+                in_features=hidden_features[-1],
+                out_features=out_features,
+                kernel_init=final_kernel_init,
+                bias_init=final_bias_init,
+                rngs=rngs,
             )
         )
 
         self.layers = nnx.List(layers)
 
     def __call__(self, x):
-        """Apply multi-layer perceptron to input features.
-
-        Args:
-            x: Input tensor with shape (..., in_features).
-
-        Returns:
-            Output tensor with shape (..., out_features).
-        """
         for layer in self.layers[:-1]:
             x = layer(x)
             x = self.activation(x)

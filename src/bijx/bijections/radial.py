@@ -67,6 +67,8 @@ class Radial(ApplyBijection):
         scale: Initial scale vector for $S$. If None, defaults to ones.
     """
 
+    _eps = 1e-7
+
     def __init__(
         self,
         scalar_bijection: Bijection,
@@ -96,34 +98,24 @@ class Radial(ApplyBijection):
         x_centered = x - self.center
         x_scaled = x_centered * self.scale
 
-        r_in = jnp.linalg.norm(x_scaled, axis=-1, keepdims=False)
-        r_safe = jnp.where(r_in > 0, r_in, 1)
+        r_in = jnp.sqrt(jnp.sum(x_scaled**2, axis=-1, keepdims=False) + self._eps**2)
 
         if reverse:
             r_out, mld_scalar = self.scalar_bijection.reverse(
                 r_in, jnp.zeros_like(r_in), **kwargs
             )
-            ratio = jnp.abs(r_out / r_safe)
-        else:  # forward
+        else:
             r_out, mld_scalar = self.scalar_bijection.forward(
                 r_in, jnp.zeros_like(r_in), **kwargs
             )
-            ratio = jnp.abs(r_out / r_safe)
 
-        # Stable evaluation of log(f(r)/r) with correct r→0 limit log f'(0)
-        log_ratio_term = jnp.where(
-            r_in > 0,
-            # mld_scalar + jnp.log1p(jnp.exp(-mld_scalar) * ratio - 1.0),
-            jnp.log(ratio),
-            -mld_scalar,
-        )
+        ratio = r_out / r_in
 
         y_scaled = jnp.expand_dims(ratio, -1) * x_scaled
         y_centered = y_scaled / self.scale
         y = y_centered + self.center
 
-        # Log-determinant of the Jacobian: log f'(r) + (n-1) log(f(r)/r)
-        log_det_radial = mld_scalar + (1 - x.shape[-1]) * log_ratio_term
+        log_det_radial = mld_scalar + (1 - x.shape[-1]) * jnp.log(ratio)
 
         return y, log_density + log_det_radial
 
@@ -145,9 +137,11 @@ class RadialConditional(ApplyBijection):
         rngs: Random number generators.
     """
 
+    _eps = 1e-7
+
     def __init__(
         self,
-        scalar_bijection: Bijection,
+        scalar_bijection: Bijection | ModuleReconstructor,
         cond_net: nnx.Module,
         center: ParamSpec = (),
         scale: ParamSpec = (),
@@ -160,7 +154,9 @@ class RadialConditional(ApplyBijection):
             scale, init_fn=nnx.initializers.normal(0.1), rngs=rngs
         )
 
-        self.reconst = ModuleReconstructor(scalar_bijection)
+        if not isinstance(scalar_bijection, ModuleReconstructor):
+            scalar_bijection = ModuleReconstructor(scalar_bijection)
+        self.reconst = scalar_bijection
         self.cond_net = cond_net
 
     @property
@@ -176,32 +172,23 @@ class RadialConditional(ApplyBijection):
         x_centered = x - self.center
         x_scaled = x_centered * self.scale
 
-        r_in = jnp.linalg.norm(x_scaled, axis=-1, keepdims=False)
-        r_safe = jnp.where(r_in > 0, r_in, 1)
+        r_in = jnp.sqrt(jnp.sum(x_scaled**2, axis=-1, keepdims=False) + self._eps**2)
 
-        x_hat = x_scaled / jnp.expand_dims(r_safe, -1)
+        x_hat = x_scaled / jnp.expand_dims(r_in, -1)
         params = self.cond_net(x_hat)
         bijection = self.reconst.from_params(params, autovmap=True)
 
         if reverse:
             r_out, mld_scalar = bijection.reverse(r_in, jnp.zeros_like(r_in), **kwargs)
-            ratio = jnp.abs(r_out / r_safe)
-        else:  # forward
+        else:
             r_out, mld_scalar = bijection.forward(r_in, jnp.zeros_like(r_in), **kwargs)
-            ratio = jnp.abs(r_out / r_safe)
 
-        # Stable evaluation of log(f(r)/r) with correct r→0 limit log f'(0)
-        log_ratio_term = jnp.where(
-            r_in > 0,
-            jnp.log(ratio),
-            -mld_scalar,
-        )
+        ratio = r_out / r_in
 
         y_scaled = jnp.expand_dims(ratio, -1) * x_scaled
         y_centered = y_scaled / self.scale
         y = y_centered + self.center
 
-        # Log-determinant of the Jacobian: log f'(r) + (n-1) log(f(r)/r)
-        log_det_radial = mld_scalar + (1 - x.shape[-1]) * log_ratio_term
+        log_det_radial = mld_scalar + (1 - x.shape[-1]) * jnp.log(ratio)
 
         return y, log_density + log_det_radial

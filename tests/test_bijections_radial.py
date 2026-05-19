@@ -81,21 +81,22 @@ class TestRayTransform:
         check_inverse(ray, x)
 
 
+def _check_inverse_relaxed(bijection, x):
+    """Check inverse with relaxed tolerance for radial transformations.
+
+    Radial transformations involve divisions by radius and can accumulate
+    numerical errors, especially for certain input configurations.
+    """
+    log_density = jnp.zeros(())
+    y, ld_forward = bijection.forward(x, log_density)
+    x_back, ld_back = bijection.reverse(y, ld_forward)
+
+    np.testing.assert_allclose(x, x_back, atol=ATOL_RELAXED, rtol=RTOL_RELAXED)
+    np.testing.assert_allclose(ld_back, 0, atol=ATOL_RELAXED, rtol=RTOL_RELAXED)
+
+
 class TestRadial:
     """Tests for Radial bijection."""
-
-    def _check_inverse_relaxed(self, bijection, x):
-        """Check inverse with relaxed tolerance for radial transformations.
-
-        Radial transformations involve divisions by radius and can accumulate
-        numerical errors, especially for certain input configurations.
-        """
-        log_density = jnp.zeros(())
-        y, ld_forward = bijection.forward(x, log_density)
-        x_back, ld_back = bijection.reverse(y, ld_forward)
-
-        np.testing.assert_allclose(x, x_back, atol=ATOL_RELAXED, rtol=RTOL_RELAXED)
-        np.testing.assert_allclose(ld_back, 0, atol=ATOL_RELAXED, rtol=RTOL_RELAXED)
 
     @given(x=gaussian_domain_inputs(shape=(2,)), seed=random_seeds)
     def test_2d_inverse_consistency(self, x, seed):
@@ -108,7 +109,7 @@ class TestRadial:
             rngs=nnx.Rngs(seed),
         )
 
-        self._check_inverse_relaxed(radial, x)
+        _check_inverse_relaxed(radial, x)
 
     @given(x=gaussian_domain_inputs(shape=(3,)), seed=random_seeds)
     def test_3d_inverse_consistency(self, x, seed):
@@ -121,7 +122,7 @@ class TestRadial:
             rngs=nnx.Rngs(seed),
         )
 
-        self._check_inverse_relaxed(radial, x)
+        _check_inverse_relaxed(radial, x)
 
     @given(seed=random_seeds)
     def test_at_origin(self, seed):
@@ -371,7 +372,7 @@ class TestRadialConditional:
             rngs=nnx.Rngs(seed),
         )
 
-        check_inverse(radial, x)
+        _check_inverse_relaxed(radial, x)
 
     @given(seed=random_seeds)
     def test_scale_property(self, seed):

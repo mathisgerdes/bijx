@@ -18,6 +18,7 @@ from flax import nnx
 __all__ = [
     "Const",
     "FrozenFilter",
+    "GroupedParam",
     "ShapeInfo",
     "default_wrap",
     "effective_sample_size",
@@ -157,6 +158,116 @@ def default_wrap(
         raise ValueError(
             f"Cannot process parameter specification of type {type(x)}: {x}"
         )
+
+
+def _pool_to_groups(raw, fund_idx, n_fund, n_lead):
+    """Mean-pool the trailing event axes onto K groups; vectorized over leading."""
+    packed = fund_idx.ravel()
+    flat = raw.reshape(raw.shape[:n_lead] + (-1,)) if n_lead else raw.ravel()
+
+    def pool_one(x):
+        ones = jnp.ones_like(x)
+        counts = jnp.bincount(packed, weights=ones, length=n_fund)
+        sums = jnp.bincount(packed, weights=x, length=n_fund)
+        sq = jnp.bincount(packed, weights=x**2, length=n_fund)
+        mean = sums / jnp.maximum(counts, 1.0)
+        var = jnp.clip(sq / jnp.maximum(counts, 1.0) - mean**2, 0.0)
+        return mean, var
+
+    fn = pool_one
+    for _ in range(n_lead):
+        fn = jax.vmap(fn)
+    return fn(flat)
+
+
+class GroupedParam(nnx.Module):
+    r"""Index-sharing parameter wrapper.
+
+    Stores a compressed underlying parameter of shape ``(*lead, K)`` and
+    exposes it gathered to the full event shape via :meth:`get_value`,
+    which returns ``param[..., fund_idx]`` (the fundamental axis must be
+    the last axis of the underlying).
+
+    Construct directly when you have an already-compressed value, or via
+    :meth:`from_int_index` to build one from an event-shape integer label
+    array and an initializer.
+
+    Args:
+        value: Underlying parameter array, shape ``(*lead, K)``.
+        fund_idx: Integer label array (already compressed to ``0..K-1``)
+            with shape equal to the target event shape.
+        n_fund: Number of distinct groups ``K``.
+    """
+
+    def __init__(self, value, fund_idx, n_fund: int):
+        value = jnp.asarray(value)
+        if value.shape[-1] != n_fund:
+            raise ValueError(f"value.shape[-1]={value.shape[-1]} != n_fund={n_fund}")
+        self.param = nnx.Param(value)
+        self.fund_idx = Const(jnp.asarray(fund_idx, dtype=jnp.int32))
+        self.n_fund = n_fund
+        self.init_pool_var = nnx.data(None)
+
+    def get_value(self):
+        """Return the full-shape gathered array ``param[..., fund_idx]``."""
+        return self.param.get_value()[..., self.fund_idx.get_value()]
+
+    @classmethod
+    def from_int_index(
+        cls,
+        int_index,
+        init_fn,
+        rngs,
+        full_shape,
+        *,
+        leading_shape=(),
+    ):
+        """Build a :class:`GroupedParam` from a label array and an initializer.
+
+        Labels are compressed to ``0..K-1``. The initializer is called with
+        shape ``(*leading_shape, K)``. If it instead returns the full layout
+        ``(*leading_shape, *full_shape)`` (e.g. a precomputed spectrum),
+        values are mean-pooled per group and the within-group population
+        variances are stored on :attr:`init_pool_var`.
+
+        Args:
+            int_index: Event-shape integer label array.
+            init_fn: Initializer ``(rng, shape) -> array``.
+            rngs: nnx random number generators.
+            full_shape: Target event shape (must match ``int_index.shape``).
+            leading_shape: Optional leading axes (e.g. ``(2,)`` for real/imag
+                shift); the fundamental axis is placed after these.
+        """
+        full_shape = tuple(full_shape)
+        leading_shape = tuple(leading_shape)
+        idx_host = np.asarray(jax.device_get(int_index))
+        if tuple(idx_host.shape) != full_shape:
+            raise ValueError(
+                f"int_index.shape {idx_host.shape} != full_shape {full_shape}"
+            )
+        uniq, inv = np.unique(idx_host.ravel(), return_inverse=True)
+        n_fund = int(uniq.shape[0])
+        fund_idx = jnp.asarray(inv.reshape(full_shape), dtype=jnp.int32)
+
+        compressed = leading_shape + (n_fund,)
+        full = leading_shape + full_shape
+
+        raw = jnp.asarray(init_fn(rngs.params(), compressed))
+        pool_var = None
+        if tuple(raw.shape) == compressed:
+            value = raw
+        elif tuple(raw.shape) == full:
+            value, pool_var = _pool_to_groups(raw, fund_idx, n_fund, len(leading_shape))
+        else:
+            raise ValueError(
+                f"init_fn returned shape {raw.shape}; expected "
+                f"{compressed} or {full}"
+            )
+
+        instance = cls(value, fund_idx, n_fund)
+        if pool_var is not None:
+            instance.init_pool_var = nnx.data(pool_var)
+        return instance
 
 
 @jax.jit

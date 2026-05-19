@@ -16,6 +16,7 @@ from flax import nnx
 
 from ..fourier import FFTRep, FourierData, FourierMeta, fft_momenta
 from ..utils import Const, ShapeInfo
+from .affine_complex import complex_affine_apply
 from .base import ApplyBijection, Bijection
 
 
@@ -63,33 +64,22 @@ class SpectrumScaling(ApplyBijection):
     def scaling(self):
         return self.scaling_var.get_value()
 
-    def scale(self, r, reverse=False):
-        """Apply Fourier-space scaling transformation.
-
-        Transforms the input through FFT, applies scaling, and transforms back.
-        Computes the log-Jacobian contribution from the scaling factors.
-
-        Args:
-            r: Input array to transform.
-            reverse: If True, apply inverse scaling (division).
-
-        Returns:
-            Tuple of (transformed_array, log_jacobian_contribution).
-        """
-        _, shape_info = self.shape_info.process_event(r.shape)
-        meta = FourierMeta.create(shape_info.space_shape)
-        r = jnp.fft.rfftn(r, shape_info.space_shape, shape_info.space_axes)
-        r = r / self.scaling if reverse else r * self.scaling
-        r = jnp.fft.irfftn(r, shape_info.space_shape, shape_info.space_axes)
-
-        factor = meta.mr.astype(int) + meta.mi.astype(int)
-        delta_ld = jnp.sum(factor * jnp.log(jnp.abs(self.scaling)))
-
-        return r, delta_ld
-
     def apply(self, x, log_density, reverse=False, **kwargs):
-        x, delta = self.scale(x, reverse=reverse)
-        return x, log_density + delta if reverse else log_density - delta
+        _, shape_info = self.shape_info.process_event(x.shape)
+        meta = FourierMeta.create(shape_info.space_shape)
+        weight = meta.mr.astype(int) + meta.mi.astype(int)
+        delta_ld = jnp.sum(weight * jnp.log(jnp.abs(self.scaling)))
+
+        x_k = jnp.fft.rfftn(x, shape_info.space_shape, shape_info.space_axes)
+        x_k, log_density = complex_affine_apply(
+            x_k,
+            log_density,
+            scale=self.scaling,
+            delta_ld=delta_ld,
+            invert=reverse,
+        )
+        x = jnp.fft.irfftn(x_k, shape_info.space_shape, shape_info.space_axes)
+        return x, log_density
 
 
 class FreeTheoryScaling(SpectrumScaling):

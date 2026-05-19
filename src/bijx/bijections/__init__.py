@@ -3,6 +3,7 @@ Bijections. Not to be exported as a module.
 """
 
 from . import (
+    affine_complex,
     analytic,
     base,
     continuous,
@@ -14,6 +15,7 @@ from . import (
     splines,
 )
 
+from .affine_complex import *
 from .base import *
 from .continuous import *
 from .conv_cnf import *
@@ -26,6 +28,9 @@ from .analytic import *
 from .radial import *
 
 __all__ = [
+    # -- affine_complex -- #
+    "complex_affine_apply",
+    "ComplexScaling",
     # -- base -- #
     "Bijection",
     "ApplyBijection",

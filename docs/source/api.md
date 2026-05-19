@@ -155,6 +155,8 @@ Multi-dimensional transformations that operate on radial coordinates while prese
    ToFourierData
    FreeTheoryScaling
    SpectrumScaling
+   ComplexScaling
+   complex_affine_apply
 ```
 
 ### ODE Solvers
@@ -187,6 +189,7 @@ with the main difference that the samples and the proposal densities are generat
 
    Const
    FrozenFilter
+   GroupedParam
    ShapeInfo
    default_wrap
    effective_sample_size

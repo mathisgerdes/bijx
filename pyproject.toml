@@ -49,6 +49,7 @@ dev = [
 ]
 docs = [
     "sphinx",
+    "sphinx-autobuild",
     "furo",
     "myst-nb",
     "sphinx-autodoc-typehints",

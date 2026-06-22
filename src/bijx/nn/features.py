@@ -257,6 +257,56 @@ class DecayingFourierFeatures(NonlinearFeatures):
         return sinusoid * envelope[..., None]
 
 
+class GaussianMonomialFeatures(NonlinearFeatures):
+    r"""Monomials damped by a learnable Gaussian envelope.
+
+    Each feature is
+
+    $$
+    g_k(\phi) = \phi^{p_k} \, \exp\!\left(-\frac{\phi^2}{2 \ell^2}\right),
+    $$
+
+    for the given ``powers`` $p_k$, with $\ell > 0$ a learnable (per-input-channel)
+    decay length. When every power is **odd**, $g_k$ is odd in $\phi$, so a linear
+    map without bias yields a $\mathbb{Z}_2$-equivariant vector field. The envelope
+    keeps the features **bounded** (decaying as $|\phi| \to \infty$), unlike the bare
+    :class:`PolynomialFeatures`, so the resulting CNF vector field stays Lipschitz
+    and the ODE well-behaved -- the polynomial counterpart of
+    :class:`DecayingFourierFeatures`.
+
+    With ``log_decay_length_init`` large (default 3, so $\ell \approx 20$) the
+    envelope is essentially flat across typical data ranges and the features start
+    out indistinguishable from bare monomials; training can then shrink $\ell$.
+
+    Args:
+        powers: Sequence of monomial powers (use odd powers for a Z2-odd map).
+        input_channels: Number of input channels to transform.
+        log_decay_length_init: Initial value of $\log \ell$ (per input channel).
+        rngs: Random number generator state.
+    """
+
+    def __init__(
+        self,
+        powers: tp.Sequence[int],
+        input_channels: int,
+        *,
+        log_decay_length_init: float = 3.0,
+        rngs: nnx.Rngs | None = None,
+    ):
+        super().__init__(input_channels * len(powers), rngs=rngs)
+        self.powers = tuple(powers)
+        self.log_decay_length = nnx.Param(
+            jnp.full((input_channels,), log_decay_length_init, dtype=jnp.float32)
+        )
+
+    def apply_feature_map(self, phi_lin, **kwargs):
+        decay_length = jnp.exp(self.log_decay_length)
+        # phi_lin: (..., C); envelope per-channel
+        envelope = jnp.exp(-0.5 * (phi_lin / decay_length) ** 2)  # (..., C)
+        monomials = jnp.stack([phi_lin**p for p in self.powers], axis=-1)  # (..., C, P)
+        return monomials * envelope[..., None]
+
+
 class GaussianRBFFeatures(NonlinearFeatures):
     r"""Gaussian radial basis features with learnable centers and widths.
 

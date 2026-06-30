@@ -346,16 +346,22 @@ def resize_kernel_weights(
     constant_values: float = 0.0,
     **pad_args,
 ) -> jnp.ndarray:
-    """Resize convolution kernel while preserving periodicity and symmetries.
+    """Resize a convolution kernel while preserving its spatial action.
 
-    Increases the spatial size of a convolution kernel through careful padding
-    that respects periodic boundary conditions and maintains proper normalization.
-    This is particularly important for symmetric kernels with boundary effects.
+    Changes the spatial size of a convolution kernel by centered padding
+    (when growing) or centered cropping (when shrinking), keeping each kernel
+    tap at the same spatial offset that :class:`ConvSym` (and ``nnx.Conv``)
+    assign it. With ``CIRCULAR`` padding the convolution maps tap ``j`` of a
+    size-``K`` kernel to relative offset ``(K - 1) // 2 - j``; this function
+    preserves that offset → weight map, so under default (zero) padding the
+    convolution output on a periodic lattice is unchanged when the kernel is
+    enlarged. Shrinking drops the outermost taps (largest ``|offset|``) first.
 
     Note:
-        For even-sized dimensions, the boundary values are handled specially
-        to maintain proper circular padding. Values at wrap-around edges are
-        split between copies to preserve total weight normalization.
+        Centering follows the same parity convention as the convolution: the
+        "center" tap (offset 0) lives at index ``(K - 1) // 2``, so even-sized
+        kernels are aligned with one extra tap on the negative-offset side.
+        Resizing to the same shape is the identity.
 
     Example:
         >>> # Resize 3x3 kernel to 5x5
@@ -375,6 +381,7 @@ def resize_kernel_weights(
         Resized kernel with spatial shape matching new_shape while preserving
         the original channel dimensions.
     """
+    kernel = np.asarray(kernel)
     shape = kernel.shape[:-2]
     if isinstance(new_shape, tuple):
         assert len(new_shape) == len(
@@ -383,43 +390,28 @@ def resize_kernel_weights(
     else:
         new_shape = (new_shape,) * len(shape)
 
-    # in even dimensions, copy the 'wrap-around' indices (at the edge)
-    wraps = [
-        (1, 0) if (old % 2 == 0) and new > old else (0, 0)
-        for new, old in zip(new_shape, shape)
-    ]
+    # Place the old kernel so that tap j keeps its convolution offset
+    # (K - 1) // 2 - j. The old tap 0 lands at index shift in the new array;
+    # this both centers (odd) and aligns the extra negative-offset tap (even).
+    padding, crop = [], ()
+    for new, old in zip(new_shape, shape):
+        shift = (new - 1) // 2 - (old - 1) // 2
+        if new >= old:
+            padding.append((shift, new - old - shift))
+            crop += np.index_exp[:]
+        else:
+            # shrinking: shift <= 0, drop -shift outer taps from the front.
+            padding.append((0, 0))
+            crop += np.index_exp[-shift : -shift + new]
 
-    kernel = np.pad(kernel, [*wraps, (0, 0), (0, 0)], "wrap")
-
-    # divide copied values by two
-    _slice = np.index_exp[:]
-    for dim, length in enumerate(shape):
-        if length % 2 == 0:
-            kernel[_slice * dim + ([0, -1],)] /= 2
-
-    # add zeros to reach desired shape
-    padding = [
-        ((new - old - 1) // 2, (old % 2) + (new - old) // 2) if new > old else (0, 0)
-        for new, old in zip(new_shape, shape)
-    ]
-    w = np.pad(
+    kernel = np.pad(
         kernel,
         padding + [(0, 0)] * 2,
         mode,
         constant_values=constant_values,
         **pad_args,
     )
-
-    # crop
-    crop = ()
-    for new, old in zip(new_shape, shape):
-        if new >= old:
-            crop += np.index_exp[:]
-        else:
-            crop += np.index_exp[
-                (old - new + (old % 2)) // 2 : -(old - new + (new % 2)) // 2
-            ]
-    return w[crop]
+    return kernel[crop]
 
 
 def fold_kernel(
@@ -587,12 +579,26 @@ class ConvSym(nnx.Module):
             kernel = self.kernel_params.reshape(self.kernel_shape)
         return nnx.Param(kernel)
 
-    def __call__(self, inputs: jax.Array) -> jax.Array:
+    def __call__(
+        self, inputs: jax.Array, kernel_params: jax.Array | None = None
+    ) -> jax.Array:
+        """Apply the symmetric convolution.
+
+        Args:
+            inputs: Input array ``(*spatial, in_features)``.
+            kernel_params: Optional orbit-shared kernel to use instead of the layer's
+                own ``self.kernel_params``. Same shape ``(orbit_count, in, out)``
+                (symmetric) or ``(prod(kernel_size), in, out)`` (no symmetry).
+                Lets a caller supply a kernel generated elsewhere while reusing this
+                layer's orbit structure, circular padding, and image-size cropping.
+                If ``None`` (default), use ``self.kernel_params``.
+        """
+        kp = self.kernel_params if kernel_params is None else kernel_params
         # Unfold orbit-shared params into the full (*kernel_size, in, out) kernel.
         full_kernel = (
-            self.kernel_params[self.orbits]
+            kp[self.orbits]
             if self.orbits is not None
-            else self.kernel_params.reshape(self.kernel_shape)
+            else kp.reshape(self.kernel_shape)
         )
 
         # Truncate to the image size so positions beyond the image never alias

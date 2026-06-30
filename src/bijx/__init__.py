@@ -34,6 +34,7 @@ except Exception:
     __version__ = "0.0.dev0"
 
 # Core modules - fully exported to top level
+from .architectures import *
 from .bijections import *
 from .distributions import *
 from .mcmc import *

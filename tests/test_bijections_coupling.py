@@ -233,33 +233,14 @@ class TestModuleReconstructorFromState:
 class TestShapeInvariance:
     @pytest.mark.parametrize("split", [True, False])
     @pytest.mark.parametrize("event_size", [1, 3])
-    @pytest.mark.parametrize("bij_rank", [0])
     @pytest.mark.parametrize("parity", [True, False])
-    @pytest.mark.parametrize("bs", [((),), ((5,),)])
-    def test_basic_shapes(self, split, event_size, bij_rank, parity, bs, rng_key):
-        # Deterministic check across shape variants without Hypothesis
+    @pytest.mark.parametrize("batch_shape", [(), (5,), (2, 3)])
+    def test_basic_shapes(self, split, event_size, parity, batch_shape, rng_key):
+        # Deterministic shape-invariance check across scalar, 1D, and multi-dim
+        # batch shapes (no Hypothesis); covers the former param_sweep cases too.
         mask = checker_mask((event_size,), parity=parity)
         layer = TestGeneralCouplingLayer()._build_layer(
-            mask, AffineLinear(rngs=nnx.Rngs(rng_key)), split=split, bij_rank=bij_rank
-        )
-        batch_shape = bs[0]
-        x = jnp.ones(batch_shape + (event_size,))
-        ld = jnp.zeros(batch_shape)
-        y, ld1 = layer.forward(x, ld)
-        assert y.shape == x.shape
-        assert ld1.shape == ld.shape
-
-    @pytest.mark.parametrize("split", [True, False])
-    @pytest.mark.parametrize("parity", [True, False])
-    @pytest.mark.parametrize("event_size", [3])
-    @pytest.mark.parametrize("bij_rank", [0])
-    @pytest.mark.parametrize("batch_shape", [(), (2,), (2, 3)])
-    def test_shape_invariance_param_sweep(
-        self, split, parity, event_size, bij_rank, batch_shape, rng_key
-    ):
-        mask = checker_mask((event_size,), parity=parity)
-        layer = TestGeneralCouplingLayer()._build_layer(
-            mask, AffineLinear(rngs=nnx.Rngs(rng_key)), split=split, bij_rank=bij_rank
+            mask, AffineLinear(rngs=nnx.Rngs(rng_key)), split=split, bij_rank=0
         )
         x = jnp.ones(batch_shape + (event_size,))
         ld = jnp.zeros(batch_shape)

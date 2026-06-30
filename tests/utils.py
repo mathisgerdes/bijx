@@ -46,9 +46,6 @@ TEST_SHAPES = [
 ]
 
 
-random_seeds = st.integers(min_value=0, max_value=2**32 - 1)
-
-
 def is_valid_array(x: jnp.ndarray) -> bool:
     """
     Check if array contains valid values (no NaN or inf).
@@ -283,21 +280,6 @@ def positive_inputs(draw, shape: tuple | None = None) -> jnp.ndarray:
         )  # Smaller shapes for bounded domains
 
     return draw(bounded_arrays(POSITIVE_RANGE[0], POSITIVE_RANGE[1], shape))
-
-
-@st.composite
-def batch_shapes(draw) -> tuple:
-    """Generate reasonable batch shapes for testing."""
-    return draw(
-        st.sampled_from(
-            [
-                (),  # no batch
-                (1,),  # single batch
-                (5,),  # small batch
-                (2, 3),  # multi-dimensional batch
-            ]
-        )
-    )
 
 
 def assert_shapes_compatible(x: jnp.ndarray, y: jnp.ndarray, message: str = "") -> None:

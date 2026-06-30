@@ -127,58 +127,71 @@ class TestNoiseModel:
 class TestMCMCSamplers:
     """Basic tests for MCMC functionality."""
 
-    def test_imh_state_creation(self):
-        """Test IMHState and IMHInfo dataclass creation."""
-        state = IMHState(
-            position=jnp.array([1.0, 2.0]), log_prob_target=-1.5, log_prob_proposal=-2.0
-        )
+    def test_imh_proposal_log_probs_consistent(self, rng_key):
+        """propose() stores log-probs consistent with the target and proposal."""
 
-        assert state.position.shape == (2,)
-        assert isinstance(state.log_prob_target, float | jax.Array)
-        assert isinstance(state.log_prob_proposal, float | jax.Array)
-
-        # Test IMHInfo
-        info = IMHInfo(is_accepted=True, accept_prob=0.8, proposal=state)
-
-        # pretty trivial tests, but not much to test
-        assert bool(info.is_accepted)
-        assert info.accept_prob == 0.8
-        assert info.proposal == state
-
-    def test_imh_sampler_basic(self, rng_key):
-        """Test basic IMH sampler functionality."""
-
-        # Target: standard normal
         def target_log_prob(x):
             return -0.5 * jnp.sum(x**2)
 
-        # Proposal: normal with different scale
         proposal = IndependentNormal(event_shape=(2,))
-
         sampler = IMH(proposal, target_log_prob)
 
-        # Test proposal generation
         rngs = nnx.Rngs(rng_key)
         prop_state = sampler.propose(rngs())
 
-        assert hasattr(prop_state, "position")
-        assert hasattr(prop_state, "log_prob_target")
-        assert hasattr(prop_state, "log_prob_proposal")
-        assert_finite_and_real(prop_state.position, "IMH proposal position")
+        # Stored log-probs must match a direct evaluation at the sampled point.
+        np.testing.assert_allclose(
+            prop_state.log_prob_target, target_log_prob(prop_state.position)
+        )
+        np.testing.assert_allclose(
+            prop_state.log_prob_proposal, proposal.log_density(prop_state.position)
+        )
 
-        # Test initialization
-        init_state = sampler.init(rngs())
-        assert isinstance(init_state, IMHState)
+    def test_imh_step_returns_proposal_or_current(self, rng_key):
+        """A step lands on either the proposal or the unchanged current state."""
 
-        # Test one step
-        new_state, info = sampler.step(rngs(), init_state)
+        def target_log_prob(x):
+            return -0.5 * jnp.sum(x**2)
+
+        proposal = IndependentNormal(event_shape=(2,))
+        sampler = IMH(proposal, target_log_prob)
+
+        rngs = nnx.Rngs(rng_key)
+        state = sampler.init(rngs())
+        new_state, info = sampler.step(rngs(), state)
 
         assert isinstance(new_state, IMHState)
         assert isinstance(info, IMHInfo)
-        assert isinstance(bool(info.is_accepted), bool | np.bool_)
+        # The new position is exactly the proposed one (accepted) or the old one.
+        if bool(info.is_accepted):
+            np.testing.assert_array_equal(new_state.position, info.proposal.position)
+        else:
+            np.testing.assert_array_equal(new_state.position, state.position)
+
+    def test_imh_perfect_proposal_always_accepts(self, rng_key):
+        """When the proposal equals the target, every IMH move is accepted.
+
+        With ``target_log_prob == proposal.log_density`` the Metropolis ratio is
+        identically 1, so acceptance is exact regardless of the draw — a strong
+        correctness check on the acceptance formula.
+        """
+        proposal = IndependentNormal(event_shape=(2,))
+        sampler = IMH(proposal, proposal.log_density)
+
+        rngs = nnx.Rngs(rng_key)
+        state = sampler.init(rngs())
+
+        for _ in range(20):
+            state, info = sampler.step(rngs(), state)
+            assert bool(info.is_accepted)
+            np.testing.assert_allclose(info.accept_prob, 1.0)
 
     def test_sampling_mcmc_consistency(self, rng_key):
-        """Test that MCMC eventually samples from target distribution."""
+        """Test that the MCMC chain concentrates around the target mean.
+
+        The chain is run with a single ``lax.scan`` (one compile, no Python-side
+        per-step dispatch) instead of a long Python loop.
+        """
         # Simple 1D target: N(1, 0.5^2)
         target_mean, target_std = 1.0, 0.5
 
@@ -188,19 +201,21 @@ class TestMCMCSamplers:
         # Proposal: N(0, 1)
         proposal = IndependentNormal(event_shape=())
         sampler = IMH(proposal, target_log_prob)
-        sampler_step = jax.jit(sampler.step)
 
-        # Run short chain
         rngs = nnx.Rngs(rng_key)
         state = sampler.init(rngs())
 
-        samples = np.full(200, np.nan)
-        for i in range(400):
-            state, info = sampler_step(rngs(), state)
-            if i >= 200:
-                samples[i - 200] = state.position
+        n_steps = 200
+        keys = jax.random.split(rngs(), n_steps)
 
-        # Check all samples were set
+        def body(carry_state, key):
+            new_state, _ = sampler.step(key, carry_state)
+            return new_state, new_state.position
+
+        _, positions = jax.lax.scan(body, state, keys)
+
+        # Discard the first half as burn-in
+        samples = positions[n_steps // 2 :]
         assert_finite_and_real(samples, "MCMC samples")
 
         # Mean should be roughly in the right direction

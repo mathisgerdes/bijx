@@ -102,10 +102,11 @@ class TestHaarDistribution:
         np.testing.assert_allclose(ld, 0)
 
     def test_periodic_gauge_lattice(self, rng_key):
-        dist = lie.HaarDistribution.periodic_gauge_lattice(n=3, lat_shape=(5, 5))
-        samples, ld = dist.sample((7,), rng=rng_key)
-        assert samples.shape == (7, 5, 5, 2, 3, 3)
-        assert ld.shape == (7,)
+        # Small lattice/batch: this only checks output shapes and SU-ness.
+        dist = lie.HaarDistribution.periodic_gauge_lattice(n=3, lat_shape=(3, 3))
+        samples, ld = dist.sample((3,), rng=rng_key)
+        assert samples.shape == (3, 3, 3, 2, 3, 3)
+        assert ld.shape == (3,)
         np.testing.assert_allclose(ld, 0)
         assert _is_su(samples.reshape(-1, 3, 3)[0])
 

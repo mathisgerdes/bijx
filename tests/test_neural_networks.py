@@ -40,6 +40,16 @@ class TestConvUtilities:
         n_orbits, orbits = kernel_equidist((5, 5))
         assert n_orbits >= 3
         assert orbits.shape == (5, 5)
+        # Equidistant orbits group sites by distance from the center, so the four
+        # corners (equidistant) share one label and the center is its own label.
+        corners = {
+            int(orbits[0, 0]),
+            int(orbits[0, 4]),
+            int(orbits[4, 0]),
+            int(orbits[4, 4]),
+        }
+        assert len(corners) == 1
+        assert orbits[2, 2] not in corners
 
     def test_fold_unfold_consistency(self, rng_key):
         shape = (3, 3)
@@ -70,6 +80,74 @@ class TestConvUtilities:
         k3 = resize_kernel_weights(k, (3, 3))
         np.testing.assert_array_equal(k3, k)
 
+    def test_resize_kernel_weights_same_shape_identity(self):
+        # Resizing to the *same* shape must be the identity for every parity,
+        # including even sizes (regression: even dims were halved at the edges).
+        for shape in [(3, 3), (4, 4), (3, 4), (6, 5)]:
+            k = jax.random.normal(jax.random.key(sum(shape)), shape + (2, 3))
+            np.testing.assert_allclose(
+                resize_kernel_weights(k, shape), np.asarray(k), rtol=RTOL
+            )
+
+    def _conv_with_kernel(self, kernel):
+        # Build a ConvSym whose kernel equals `kernel` (orbit_function=None so
+        # params are the raw, unfolded kernel), with no bias.
+        ks = kernel.shape[:-2]
+        in_c, out_c = kernel.shape[-2:]
+        conv = ConvSym(
+            in_c,
+            out_c,
+            kernel_size=ks,
+            orbit_function=None,
+            use_bias=False,
+            rngs=nnx.Rngs(0),
+        )
+        conv.kernel_params = nnx.Param(jnp.asarray(kernel).reshape(-1, in_c, out_c))
+        return conv
+
+    def test_resize_kernel_weights_preserves_convolution(self):
+        # The defining property: under ConvSym's CIRCULAR padding, enlarging a
+        # kernel (zero-padding that preserves each tap's spatial offset) must
+        # leave the convolution output on a periodic lattice unchanged.
+        size = 11
+        x1 = jax.random.normal(jax.random.key(0), (size, 1, 1))
+        for kernel_size in (3, 4, 5, 6, 7):
+            k = jax.random.normal(jax.random.key(kernel_size), (kernel_size, 1, 1))
+            y0 = self._conv_with_kernel(k)(x1)
+            for new in range(kernel_size, size + 1):
+                k2 = resize_kernel_weights(k, (new,))
+                y1 = self._conv_with_kernel(jnp.asarray(k2))(x1)
+                np.testing.assert_allclose(y0, y1, atol=1e-5)
+
+        size = 9
+        x2 = jax.random.normal(jax.random.key(1), (size, size, 1, 1))
+        for kernel_size in [(3, 3), (4, 4), (3, 5), (4, 6), (5, 4)]:
+            k = jax.random.normal(
+                jax.random.key(sum(kernel_size)), kernel_size + (1, 1)
+            )
+            y0 = self._conv_with_kernel(k)(x2)
+            for new in [
+                (kernel_size[0] + 1, kernel_size[1] + 1),
+                (kernel_size[0] + 2, kernel_size[1] + 3),
+                (size, size),
+            ]:
+                k2 = resize_kernel_weights(k, new)
+                y1 = self._conv_with_kernel(jnp.asarray(k2))(x2)
+                np.testing.assert_allclose(y0, y1, atol=1e-5)
+
+    def test_resize_kernel_weights_shrink_drops_outer_taps(self):
+        # Shrinking keeps the centered taps; if support lives in the center the
+        # result must be conv-invariant under CIRCULAR padding.
+        size = 11
+        x1 = jax.random.normal(jax.random.key(3), (size, 1, 1))
+        k = np.zeros((7, 1, 1))
+        k[2:5, 0, 0] = np.asarray(jax.random.normal(jax.random.key(4), (3,)))
+        y0 = self._conv_with_kernel(jnp.asarray(k))(x1)
+        k3 = resize_kernel_weights(k, (3,))
+        assert k3.shape == (3, 1, 1)
+        y1 = self._conv_with_kernel(jnp.asarray(k3))(x1)
+        np.testing.assert_allclose(y0, y1, atol=1e-5)
+
     def test_rot_lattice_90_four_times_identity(self):
         x = jnp.arange(3 * 3).reshape(3, 3)
         y = x
@@ -94,6 +172,23 @@ class TestConvSym:
         x = jnp.ones((8, 8, 1))
         y = conv_sym(x)
         assert y.shape == (8, 8, 2)
+
+    def test_call_with_external_kernel_params(self, rng_key):
+        # Passing kernel_params overrides the layer's own; None reproduces the default,
+        # and a supplied (generated) kernel is used instead and is differentiable.
+        r = nnx.Rngs(rng_key)
+        conv = ConvSym(1, 2, kernel_size=(3, 3), orbit_function=kernel_d4, rngs=r)
+        x = jnp.ones((6, 6, 1))
+        # default path equals explicitly passing the layer's own params
+        y_default = conv(x)
+        y_explicit = conv(x, kernel_params=conv.kernel_params[...])
+        assert jnp.allclose(y_default, y_explicit)
+        # a different (generated) kernel changes the output and carries gradients back
+        gen = jnp.ones_like(conv.kernel_params[...])
+        y_gen = conv(x, kernel_params=gen)
+        assert not jnp.allclose(y_default, y_gen)
+        g = jax.grad(lambda kp: jnp.sum(conv(x, kernel_params=kp)))(gen)
+        assert jnp.any(g != 0)
 
     def test_grad_through_params(self, rng_key):
         conv = ConvSym(1, 1, kernel_size=(3, 3), rngs=nnx.Rngs(rng_key))
@@ -176,9 +271,12 @@ class TestFeatures:
 
     def test_polynomial_features_basic(self, rng_key):
         feats = PolynomialFeatures([1, 2, 3], input_channels=1, rngs=nnx.Rngs(rng_key))
-        x = jnp.ones((2, 2, 1))
+        # Non-trivial input pins the actual powers: feature_k(x) = x**p_k.
+        x = jnp.full((2, 2, 1), 2.0)
         y, div_map = feats(x)
         assert y.shape == (2, 2, 3)
+        expected = jnp.broadcast_to(jnp.array([2.0, 4.0, 8.0]), y.shape)
+        np.testing.assert_allclose(y, expected, rtol=RTOL)
         local = jnp.ones((len(feats.powers), 1))
         div = div_map(local)
         assert jnp.all(jnp.isfinite(div))
@@ -191,6 +289,10 @@ class TestFeatures:
         x = jnp.ones((3, 3, 1))
         y, _ = combo(x)
         assert y.shape == (3, 3, 6)
+        # Concatenation must equal stacking the sub-feature outputs along channels.
+        y1, _ = f1(x)
+        y2, _ = f2(x)
+        np.testing.assert_allclose(y, jnp.concatenate([y1, y2], axis=-1), rtol=RTOL)
 
 
 class TestSimpleNets:

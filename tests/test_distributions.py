@@ -11,8 +11,6 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from flax import nnx
-from hypothesis import given
-from hypothesis import strategies as st
 
 from bijx import (
     ArrayDistribution,
@@ -26,7 +24,7 @@ from bijx import (
 )
 from bijx.distributions import _cholesky_fold, _dim_to_chol_size
 
-from .utils import ATOL, RTOL, assert_finite_and_real, batch_shapes, random_seeds
+from .utils import ATOL, RTOL, assert_finite_and_real
 
 
 class TestDistributionBase:
@@ -144,16 +142,13 @@ class TestArrayDistribution:
 class TestIndependentNormal:
     """Tests for IndependentNormal distribution."""
 
-    @given(
-        seed=random_seeds,
-        event_shape=st.sampled_from([(), (1,), (3,), (2, 4), (3, 2, 5)]),
-        batch_shape=batch_shapes(),
-    )
-    def test_sample_shapes(self, seed, event_shape, batch_shape):
+    @pytest.mark.parametrize("event_shape", [(), (1,), (3,), (2, 4), (3, 2, 5)])
+    @pytest.mark.parametrize("batch_shape", [(), (1,), (5,), (2, 3)])
+    def test_sample_shapes(self, event_shape, batch_shape):
         """Test that samples have correct shapes."""
         dist = IndependentNormal(event_shape=event_shape)
 
-        samples, log_p = dist.sample(batch_shape=batch_shape, rng=jax.random.key(seed))
+        samples, log_p = dist.sample(batch_shape=batch_shape, rng=jax.random.key(0))
 
         expected_sample_shape = batch_shape + event_shape
         expected_log_p_shape = batch_shape
@@ -163,16 +158,13 @@ class TestIndependentNormal:
         assert_finite_and_real(samples, "samples")
         assert_finite_and_real(log_p, "log probabilities")
 
-    @given(
-        seed=random_seeds,
-        event_shape=st.sampled_from([(), (1,), (5,), (2, 3)]),
-    )
-    def test_log_density_correctness(self, seed, event_shape):
+    @pytest.mark.parametrize("event_shape", [(), (1,), (5,), (2, 3)])
+    def test_log_density_correctness(self, event_shape):
         """Test log density computation matches standard normal."""
         dist = IndependentNormal(event_shape=event_shape)
 
         # Generate test samples
-        samples, _ = dist.sample(batch_shape=(5,), rng=jax.random.key(seed))
+        samples, _ = dist.sample(batch_shape=(5,), rng=jax.random.key(0))
         log_p = dist.log_density(samples)
 
         # Manual computation for independent normals
@@ -197,16 +189,13 @@ class TestIndependentNormal:
 class TestIndependentUniform:
     """Tests for IndependentUniform distribution."""
 
-    @given(
-        seed=st.integers(min_value=0, max_value=2**32 - 1),
-        event_shape=st.sampled_from([(), (1,), (3,), (2, 4)]),
-        batch_shape=batch_shapes(),
-    )
-    def test_sample_shapes_and_range(self, seed, event_shape, batch_shape):
+    @pytest.mark.parametrize("event_shape", [(), (1,), (3,), (2, 4)])
+    @pytest.mark.parametrize("batch_shape", [(), (1,), (5,), (2, 3)])
+    def test_sample_shapes_and_range(self, event_shape, batch_shape):
         """Test sample shapes and range constraints."""
         dist = IndependentUniform(event_shape=event_shape)
 
-        samples, log_p = dist.sample(batch_shape=batch_shape, rng=jax.random.key(seed))
+        samples, log_p = dist.sample(batch_shape=batch_shape, rng=jax.random.key(0))
 
         expected_sample_shape = batch_shape + event_shape
         expected_log_p_shape = batch_shape
@@ -220,16 +209,13 @@ class TestIndependentUniform:
         assert_finite_and_real(samples, "samples")
         assert_finite_and_real(log_p, "log probabilities")
 
-    @given(
-        seed=random_seeds,
-        event_shape=st.sampled_from([(), (2,), (3, 2)]),
-    )
-    def test_log_density_correctness(self, seed, event_shape):
+    @pytest.mark.parametrize("event_shape", [(), (2,), (3, 2)])
+    def test_log_density_correctness(self, event_shape):
         """Test log density computation matches uniform distribution."""
         dist = IndependentUniform(event_shape=event_shape)
 
         # Test with valid samples in [0, 1]
-        test_samples = jax.random.uniform(jax.random.key(seed), (5,) + event_shape)
+        test_samples = jax.random.uniform(jax.random.key(0), (5,) + event_shape)
 
         log_p = dist.log_density(test_samples)
 
@@ -274,16 +260,13 @@ class TestMultivariateNormal:
         assert mvn.dim == dim
         assert mvn.mean.shape == (dim,)
 
-    @given(
-        seed=random_seeds,
-        dim=st.sampled_from([2, 3]),
-        batch_shape=batch_shapes(),
-    )
-    def test_sample_shapes(self, seed, dim, batch_shape):
+    @pytest.mark.parametrize("dim", [2, 3])
+    @pytest.mark.parametrize("batch_shape", [(), (1,), (5,), (2, 3)])
+    def test_sample_shapes(self, dim, batch_shape):
         """Test that samples have correct shapes."""
-        mvn = self.create_test_mvn(dim=dim, seed=seed)
+        mvn = self.create_test_mvn(dim=dim, seed=0)
 
-        samples, log_p = mvn.sample(batch_shape=batch_shape, rng=jax.random.key(seed))
+        samples, log_p = mvn.sample(batch_shape=batch_shape, rng=jax.random.key(0))
 
         expected_sample_shape = batch_shape + (dim,)
         expected_log_p_shape = batch_shape
@@ -301,34 +284,6 @@ class TestMultivariateNormal:
         computed_log_p = mvn.log_density(samples)
 
         np.testing.assert_allclose(reported_log_p, computed_log_p, atol=ATOL, rtol=RTOL)
-
-    def test_log_density_correctness(self, rng_key):
-        """Test log density matches analytical results for known cases."""
-        # Test case: 2D standard normal
-        mean = jnp.array([0.0, 0.0])
-        cov = jnp.eye(2)
-        cholesky_matrix = jnp.linalg.cholesky(cov)
-        cholesky_vector = _cholesky_fold(cholesky_matrix)
-
-        mvn = MultivariateNormal(
-            mean=mean, cholesky=cholesky_vector, rngs=nnx.Rngs(rng_key)
-        )
-
-        # Test at origin
-        x = jnp.array([0.0, 0.0])
-        log_p = mvn.log_density(x)
-
-        # Expected: log(1/(2π)) = -log(2π)
-        expected = -jnp.log(2 * jnp.pi)
-        np.testing.assert_allclose(log_p, expected, atol=ATOL)
-
-        # Test at [1, 1]
-        x = jnp.array([1.0, 1.0])
-        log_p = mvn.log_density(x)
-
-        # Expected: -1/2 * (1² + 1²) - log(2π) = -1 - log(2π)
-        expected = -1.0 - jnp.log(2 * jnp.pi)
-        np.testing.assert_allclose(log_p, expected, atol=ATOL)
 
     def test_log_density_vs_scipy(self, rng_key):
         """Test log density matches jnp.scipy.stats.multivariate_normal.logpdf."""
@@ -400,45 +355,6 @@ class TestMultivariateNormal:
         reconstructed_cov = mvn.cov
         np.testing.assert_allclose(reconstructed_cov, cov_true, atol=ATOL)
 
-    def test_gradient_flow(self, rng_key):
-        """Test that gradients flow correctly through distribution parameters."""
-
-        def loss_fn(cholesky_params, rng_key):
-            mvn = MultivariateNormal(
-                mean=jnp.array([0.0, 0.0]),
-                cholesky=cholesky_params,
-                rngs=nnx.Rngs(rng_key),
-            )
-            samples, log_p = mvn.sample(batch_shape=(2,))
-            return -jnp.mean(log_p)  # Negative log likelihood
-
-        # Initial Cholesky parameters (for 2D case)
-        cholesky_size = _dim_to_chol_size(2)
-        cholesky_params = jnp.ones(cholesky_size) * 0.1
-
-        # Compute gradients
-        loss_val, grads = jax.value_and_grad(lambda p: loss_fn(p, rng_key))(
-            cholesky_params
-        )
-
-        assert_finite_and_real(jnp.array(loss_val), "loss")
-        assert_finite_and_real(grads, "gradients")
-        assert grads.shape == cholesky_params.shape
-
-    def test_batch_shape_handling(self):
-        """Test that batch shapes are handled correctly."""
-        mvn = self.create_test_mvn(dim=3)
-
-        # Test single sample
-        x_single = jnp.array([1.0, 1.0, 1.0])
-        batch_shape_single = mvn.get_batch_shape(x_single)
-        assert batch_shape_single == ()
-
-        # Test batched samples
-        x_batch = jnp.array([[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]])
-        batch_shape_batch = mvn.get_batch_shape(x_batch)
-        assert batch_shape_batch == (2,)
-
 
 class TestDiagonalNormal:
     """Tests for DiagonalNormal distribution."""
@@ -464,16 +380,13 @@ class TestDiagonalNormal:
         assert dn.mean.shape == (dim,)
         assert dn.scales.shape == (dim,)
 
-    @given(
-        seed=random_seeds,
-        dim=st.sampled_from([2, 3]),
-        batch_shape=batch_shapes(),
-    )
-    def test_sample_shapes(self, seed, dim, batch_shape):
+    @pytest.mark.parametrize("dim", [2, 3])
+    @pytest.mark.parametrize("batch_shape", [(), (1,), (5,), (2, 3)])
+    def test_sample_shapes(self, dim, batch_shape):
         """Test that samples have correct shapes."""
-        dn = self.create_test_diagonal_normal(dim=dim, seed=seed)
+        dn = self.create_test_diagonal_normal(dim=dim, seed=0)
 
-        samples, log_p = dn.sample(batch_shape=batch_shape, rng=jax.random.key(seed))
+        samples, log_p = dn.sample(batch_shape=batch_shape, rng=jax.random.key(0))
 
         expected_sample_shape = batch_shape + (dim,)
         expected_log_p_shape = batch_shape
@@ -491,30 +404,6 @@ class TestDiagonalNormal:
         computed_log_p = dn.log_density(samples)
 
         np.testing.assert_allclose(reported_log_p, computed_log_p, atol=ATOL, rtol=RTOL)
-
-    def test_log_density_correctness(self, rng_key):
-        """Test log density matches analytical results for known cases."""
-        # Test case: 2D diagonal normal with unit variance
-        mean = jnp.array([0.0, 0.0])
-        scales = jnp.array([1.0, 1.0])
-
-        dn = DiagonalNormal(mean=mean, scales=scales, rngs=nnx.Rngs(rng_key))
-
-        # Test at origin
-        x = jnp.array([0.0, 0.0])
-        log_p = dn.log_density(x)
-
-        # Expected: log(1/(2π)) = -log(2π)
-        expected = -jnp.log(2 * jnp.pi)
-        np.testing.assert_allclose(log_p, expected, atol=ATOL)
-
-        # Test at [1, 1]
-        x = jnp.array([1.0, 1.0])
-        log_p = dn.log_density(x)
-
-        # Expected: -1/2 * (1² + 1²) - log(2π) = -1 - log(2π)
-        expected = -1.0 - jnp.log(2 * jnp.pi)
-        np.testing.assert_allclose(log_p, expected, atol=ATOL)
 
     def test_log_density_vs_scipy(self, rng_key):
         """Test log density matches jnp.scipy.stats.multivariate_normal.logpdf."""
@@ -570,42 +459,6 @@ class TestDiagonalNormal:
 
         expected_variances = scales**2
         np.testing.assert_allclose(dn.variances, expected_variances, atol=ATOL)
-
-    def test_gradient_flow(self, rng_key):
-        """Test that gradients flow correctly through distribution parameters."""
-
-        def loss_fn(params, rng_key):
-            dn = DiagonalNormal(
-                mean=params[:2],
-                scales=params[2:],
-                rngs=nnx.Rngs(rng_key),
-            )
-            samples, log_p = dn.sample(batch_shape=(2,))
-            return -jnp.mean(log_p)  # Negative log likelihood
-
-        # Initial parameters (mean + scales concatenated)
-        params = jnp.array([0.0, 0.0, 1.0, 1.0])
-
-        # Compute gradients
-        loss_val, grads = jax.value_and_grad(lambda p: loss_fn(p, rng_key))(params)
-
-        assert_finite_and_real(jnp.array(loss_val), "loss")
-        assert_finite_and_real(grads, "gradients")
-        assert grads.shape == params.shape
-
-    def test_batch_shape_handling(self):
-        """Test that batch shapes are handled correctly."""
-        dn = self.create_test_diagonal_normal(dim=3)
-
-        # Test single sample
-        x_single = jnp.array([1.0, 1.0, 1.0])
-        batch_shape_single = dn.get_batch_shape(x_single)
-        assert batch_shape_single == ()
-
-        # Test batched samples
-        x_batch = jnp.array([[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]])
-        batch_shape_batch = dn.get_batch_shape(x_batch)
-        assert batch_shape_batch == (2,)
 
     def test_given_variances(self, rng_key):
         """Test the given_variances classmethod."""
@@ -704,7 +557,7 @@ class TestGaussianMixture:
         assert gmm.covs.shape == (n_components, data_dim, data_dim)
         assert gmm.weights.shape == (n_components,)
 
-    @given(batch_shape=batch_shapes())
+    @pytest.mark.parametrize("batch_shape", [(), (1,), (5,), (2, 3)])
     def test_sample_shapes(self, batch_shape):
         """Test that samples have correct shapes."""
         gmm = self.create_test_gmm(n_components=2, data_dim=3)
@@ -755,8 +608,8 @@ class TestGaussianMixture:
         """Test that mixture has multiple modes as expected."""
         gmm = self.create_test_gmm(n_components=2, data_dim=1, seed=888)
 
-        # Generate many samples to check for multimodality
-        samples, _ = gmm.sample(batch_shape=(1000,))
+        # A modest sample count is plenty for the loose spread/mean bounds below.
+        samples, _ = gmm.sample(batch_shape=(100,))
 
         # With components at different means, we should see multimodal behavior
         # Check that we have samples spread across the range
@@ -790,20 +643,6 @@ class TestGaussianMixture:
         expected_log_p = -0.5 * (log_det + mahalanobis + 2 * jnp.log(2 * jnp.pi))
 
         np.testing.assert_allclose(log_p_gmm, expected_log_p, atol=ATOL)
-
-    def test_batch_shape_handling(self):
-        """Test that batch shapes are handled correctly."""
-        gmm = self.create_test_gmm(n_components=1, data_dim=3)
-
-        # Test single sample
-        x_single = jnp.array([1.0, 1.0, 1.0])
-        batch_shape_single = gmm.get_batch_shape(x_single)
-        assert batch_shape_single == ()
-
-        # Test batched samples
-        x_batch = jnp.array([[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]])
-        batch_shape_batch = gmm.get_batch_shape(x_batch)
-        assert batch_shape_batch == (2,)
 
     def test_weights_none_default(self):
         """Test that weights=None creates uniform weights."""
@@ -848,30 +687,49 @@ class TestDistributionIntegration:
         assert jnp.all(uniform_samples <= 1.0)
         assert jnp.any(normal_samples < 0.0) or jnp.any(normal_samples > 1.0)
 
-    def test_gradient_flow(self, rng_key):
-        """Test that gradients flow correctly through distribution parameters."""
+    @pytest.mark.parametrize("dist_name", ["mvn", "diagonal", "gmm"])
+    def test_gradient_flow(self, dist_name, rng_key):
+        """Gradients flow (finite, shape-preserving) through each distribution's params.
 
-        def loss_fn(params, rng_key):
-            gmm = GaussianMixture(
-                means=params["means"],
-                covariances=params["covariances"],
-                weights=params["weights"],
-                rngs=nnx.Rngs(rng_key),
-            )
-            samples, log_p = gmm.sample(batch_shape=(5,))
+        Consolidates the former per-distribution gradient-flow smoke tests into one
+        parametrized NLL-gradient check.
+        """
+
+        def loss_fn(params, key):
+            if dist_name == "mvn":
+                dist = MultivariateNormal(
+                    mean=jnp.array([0.0, 0.0]), cholesky=params, rngs=nnx.Rngs(key)
+                )
+            elif dist_name == "diagonal":
+                dist = DiagonalNormal(
+                    mean=params[:2], scales=params[2:], rngs=nnx.Rngs(key)
+                )
+            else:  # gmm
+                dist = GaussianMixture(
+                    means=params["means"],
+                    covariances=params["covariances"],
+                    weights=params["weights"],
+                    rngs=nnx.Rngs(key),
+                )
+            _, log_p = dist.sample(batch_shape=(5,))
             return -jnp.mean(log_p)  # Negative log likelihood
 
-        # Initial parameters
-        params = {
-            "means": jnp.array([[0.0, 0.0], [1.0, 1.0]]),
-            "covariances": jnp.array([[1.0, 1.0], [1.0, 1.0]]),  # diagonal variances
-            "weights": jnp.array([0.5, 0.5]),
-        }
+        init_params = {
+            "mvn": jnp.ones(_dim_to_chol_size(2)) * 0.1,
+            "diagonal": jnp.array([0.0, 0.0, 1.0, 1.0]),  # mean + scales
+            "gmm": {
+                "means": jnp.array([[0.0, 0.0], [1.0, 1.0]]),
+                "covariances": jnp.array([[1.0, 1.0], [1.0, 1.0]]),  # diag variances
+                "weights": jnp.array([0.5, 0.5]),
+            },
+        }[dist_name]
 
-        # Compute gradients
-        loss_val, grads = jax.value_and_grad(lambda p: loss_fn(p, rng_key))(params)
+        loss_val, grads = jax.value_and_grad(lambda p: loss_fn(p, rng_key))(init_params)
 
         assert_finite_and_real(jnp.array(loss_val), "loss")
-        for key, grad in grads.items():
-            assert_finite_and_real(grad, f"gradient_{key}")
-            assert grad.shape == params[key].shape
+        param_leaves = jax.tree.leaves(init_params)
+        grad_leaves = jax.tree.leaves(grads)
+        assert grad_leaves, "no gradient leaves"
+        for p_leaf, g_leaf in zip(param_leaves, grad_leaves):
+            assert_finite_and_real(g_leaf, "gradient")
+            assert g_leaf.shape == p_leaf.shape

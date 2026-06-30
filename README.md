@@ -80,7 +80,7 @@ flow = bijx.Chain(
 )
 
 # sample from the base distribution
-rng = jax.random.PRNGKey(42)
+rng = jax.random.key(42)
 x, lp_x = prior.sample(batch_shape=(5,), rng=rng)
 
 # transform samples with bijection

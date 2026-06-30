@@ -26,12 +26,10 @@ def add_imports(doctest_namespace):
     eps = jax.random.normal(key, (32, 32))  # Random field for examples
     real_data = jax.random.normal(key, (32, 32))  # Real data for Fourier examples
     t = jnp.array(0.5)
-    time_values = t  # Alias
     position_indices = jnp.arange(10)  # Position indices
     input_features = jax.random.normal(key, (5, 32))  # Input features
     features = jax.random.normal(key, (5, 64))  # Features array
     lattice_data = jax.random.normal(key, (8, 8, 1))  # Lattice data
-    local_coupling = jnp.ones((16,))  # Local coupling for features
     lat = bijx.lie.sample_haar(key, 2, (4, 4, 2))  # Gauge field config
     # for symmetry; one matrix per vertex
     gauge_matrices = bijx.lie.sample_haar(key, 2, (4, 4))
@@ -42,7 +40,7 @@ def add_imports(doctest_namespace):
             super().__init__(event_shape, rngs=rngs or nnx.Rngs(42))
 
         def sample(self, batch_shape=(), rng=None, **kwargs):
-            key = jax.random.PRNGKey(42)
+            key = jax.random.key(42)
             shape = batch_shape + self.event_shape
             x = jax.random.normal(key, shape)
             log_p = jnp.zeros(batch_shape)
@@ -114,12 +112,10 @@ def add_imports(doctest_namespace):
             "eps": eps,
             "real_data": real_data,
             "t": t,
-            "time_values": time_values,
             "position_indices": position_indices,
             "input_features": input_features,
             "features": features,
             "lattice_data": lattice_data,
-            "local_coupling": local_coupling,
             "lat": lat,
             "gauge_matrices": gauge_matrices,
             "phi": phi,

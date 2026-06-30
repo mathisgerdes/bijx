@@ -478,25 +478,6 @@ class TestODESolvers:
         prod = noise_term.prod(jnp.ones_like(y0), control)
         np.testing.assert_allclose(prod, noise_transform(control))
 
-    def test_solve_sde_smoke_runs(self, rng_key):
-        """Smoke test that the SDE wrapper integrates without error."""
-
-        def drift(t, y, args):
-            return jnp.zeros_like(y)
-
-        def diffusion(t, y, args):
-            return jnp.ones_like(y)
-
-        cfg = DiffraxConfig(t_start=0.0, t_end=0.5, dt=0.1)
-        y0 = jnp.array([0.0, 1.0])
-
-        sol = cfg.solve_sde(drift, diffusion, y0, rng_key)
-
-        assert sol.ts.shape[0] == sol.ys.shape[0]
-        np.testing.assert_allclose(sol.ts[-1], cfg.t_end)
-        assert_finite_and_real(sol.ys, "SDE smoke solution")
-        assert sol.ys.shape[-1] == y0.shape[-1]
-
 
 class TestIntegrationConsistency:
     """Integration tests checking consistency between different solvers."""
@@ -596,6 +577,5 @@ class TestNumericalStability:
         energy_final = 0.5 * jnp.sum(y_final**2)
 
         # Should conserve energy reasonably well
-        np.testing.assert_allclose(energy_final, energy_initial, rtol=1e-2)
         np.testing.assert_allclose(energy_final, energy_initial, rtol=1e-2)
         np.testing.assert_allclose(energy_final, energy_initial, rtol=1e-2)

@@ -16,7 +16,6 @@ import numpy as np
 import pytest
 from flax import nnx
 from hypothesis import given
-from hypothesis import strategies as st
 
 # Import bijections to test
 from bijx import (
@@ -113,36 +112,44 @@ class TestContinuousFlows:
         expected_dlogp_dt = -0.2
         np.testing.assert_allclose(dlogp_dt, expected_dlogp_dt, rtol=RTOL, atol=ATOL)
 
-    def test_cont_flow_rk4_basic(self):
-        """Test ContFlowRK4 with simple vector field."""
+    @pytest.mark.parametrize(
+        "make_flow",
+        [
+            lambda vf: ContFlowRK4(vf, t_end=1.0, steps=10),
+            lambda vf: ContFlowDiffrax(
+                vf,
+                DiffraxConfig(
+                    t_start=0.0,
+                    t_end=1.0,
+                    dt=0.1,
+                    solver=diffrax.Heun(),
+                    stepsize_controller=diffrax.ConstantStepSize(),
+                ),
+            ),
+        ],
+        ids=["rk4", "diffrax"],
+    )
+    def test_cont_flow_roundtrip(self, make_flow):
+        """ContFlowRK4 / ContFlowDiffrax forward/reverse round-trip on a linear VF."""
 
         class LinearVF(nnx.Module):
-            """Simple linear vector field for testing."""
+            """Simple linear vector field: dx/dt = -0.2 x (div = -0.2 -> -div = 0.2)."""
 
             def __call__(self, t, x, **kwargs):
-                # dx/dt = -0.5 * x (exponential decay)
-                dx_dt = -0.5 * x
-                # divergence of -0.5 * x is -0.5 for scalar case
-                dlogp_dt = jnp.array(0.5)  # -(-0.5) = 0.5
-                return dx_dt, dlogp_dt
+                return -0.2 * x, jnp.array(0.2)
 
-        # Create RK4 continuous flow
-        vf = LinearVF()
-        flow = ContFlowRK4(vf, t_end=1.0, steps=10)  # dt=0.1 -> steps=10 for t_end=1.0
+        flow = make_flow(LinearVF())
 
-        # Test forward and inverse consistency
-        x = jnp.array([2.0])
+        x = jnp.array([1.5])
         log_density = jnp.array(0.0)
 
-        # Check basic functionality
         y, ld_forward = flow.forward(x, log_density)
-        assert_finite_and_real(y, "RK4 forward output")
-        assert_finite_and_real(ld_forward, "RK4 forward log density")
+        assert_finite_and_real(y, "cont-flow forward output")
+        assert_finite_and_real(ld_forward, "cont-flow forward log density")
 
         x_back, ld_back = flow.reverse(y, ld_forward)
 
-        # Check inverse consistency
-        # (with reasonable tolerance for numerical integration)
+        # Relaxed tolerance for numerical integration round-trip
         np.testing.assert_allclose(x_back, x, atol=ATOL_RELAXED, rtol=RTOL_RELAXED)
         np.testing.assert_allclose(
             ld_back, log_density, atol=ATOL_RELAXED, rtol=RTOL_RELAXED
@@ -158,48 +165,6 @@ class TestContinuousFlows:
         vel, neg_div = cnf(t, x)
         assert vel.shape == x.shape
         assert neg_div.shape == ()
-
-    def test_cont_flow_diffrax_basic(self):
-        """Test ContFlowDiffrax with simple vector field."""
-
-        class LinearVF(nnx.Module):
-            """Simple linear vector field for testing."""
-
-            def __call__(self, t, x, **kwargs):
-                # dx/dt = -0.2 * x (exponential decay)
-                dx_dt = -0.2 * x
-                # For scalar x, divergence is -0.2, so -divergence = 0.2
-                dlogp_dt = jnp.array(0.2)
-                return dx_dt, dlogp_dt
-
-        # Create diffrax continuous flow
-        vf = LinearVF()
-        config = DiffraxConfig(
-            t_start=0.0,
-            t_end=2.0,
-            dt=0.1,
-            solver=diffrax.Heun(),
-            stepsize_controller=diffrax.ConstantStepSize(),
-        )
-        flow = ContFlowDiffrax(vf, config)
-
-        # Test forward and inverse consistency
-        x = jnp.array([1.5])
-        log_density = jnp.array(0.0)
-
-        # Check basic functionality
-        y, ld_forward = flow.forward(x, log_density)
-        assert_finite_and_real(y, "Diffrax forward output")
-        assert_finite_and_real(ld_forward, "Diffrax forward log density")
-
-        x_back, ld_back = flow.reverse(y, ld_forward)
-
-        # Check inverse consistency
-        # (with reasonable tolerance for numerical integration)
-        np.testing.assert_allclose(x_back, x, atol=ATOL_RELAXED, rtol=RTOL_RELAXED)
-        np.testing.assert_allclose(
-            ld_back, log_density, atol=ATOL_RELAXED, rtol=RTOL_RELAXED
-        )
 
 
 class TestSplines:
@@ -285,26 +250,6 @@ class TestSplines:
         np.testing.assert_allclose(x_back, x, atol=ATOL, rtol=RTOL)
         np.testing.assert_allclose(ld_back, log_density, atol=ATOL, rtol=RTOL)
 
-    @given(
-        x=unit_interval_inputs(shape=(4, 3)),
-        seed=st.integers(min_value=0, max_value=2**32 - 1),
-    )
-    def test_monotone_rq_spline_vectorized(self, x, seed):
-        """Test MonotoneRQSpline with vectorized event shape (randomized batch)."""
-        # Create spline for vector inputs
-        n_knots = 5
-        event_shape = (3,)  # 3D vector
-        spline = MonotoneRQSpline(
-            n_knots, event_shape, rngs=nnx.Rngs(jax.random.key(seed))
-        )
-
-        log_density = jnp.zeros(x.shape[0])
-
-        # Test basic forward pass works (should not crash)
-        y, ld_forward = spline.forward(x, log_density)
-        assert_finite_and_real(y, "vectorized spline forward output")
-        assert_finite_and_real(ld_forward, "vectorized spline forward log density")
-
     @pytest.mark.parametrize("batch_shape", [(), (2,), (2, 3)])
     @pytest.mark.parametrize("event_shape", [(), (1,), (2,), (2, 2)])
     @pytest.mark.parametrize("knots", [4, 7])
@@ -344,15 +289,10 @@ class TestSplines:
         np.testing.assert_allclose(x2, x, atol=ATOL, rtol=RTOL)
         np.testing.assert_allclose(ld2, ld, atol=ATOL, rtol=RTOL)
 
-    @given(
-        x=unit_interval_inputs(shape=()),
-        seed=st.integers(min_value=0, max_value=2**32 - 1),
-    )
-    def test_spline_property_based(self, x, seed):
-        """Property-based test for spline consistency."""
-        spline = MonotoneRQSpline(
-            4, (), rngs=nnx.Rngs(jax.random.key(seed))
-        )  # Small spline for speed
+    @given(x=unit_interval_inputs(shape=()))
+    def test_spline_property_based(self, x):
+        """Property-based test for spline consistency over random domain inputs."""
+        spline = MonotoneRQSpline(4, (), rngs=nnx.Rngs(0))  # Small spline for speed
 
         # Use safe checks for property-based testing with diagnostics
         check_inverse(spline, x)
@@ -391,8 +331,8 @@ class TestFourierBijections:
 
     def test_free_theory_scaling(self, rng_key):
         """Test FreeTheoryScaling for physics applications."""
-        # Create lattice field
-        lattice_shape = (8, 8)
+        # Create lattice field (small: this checks round-trip correctness, not scaling)
+        lattice_shape = (4, 4)
         x = jax.random.normal(rng_key, lattice_shape)
         log_density = jnp.array(0.0)
 

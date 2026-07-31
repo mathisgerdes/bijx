@@ -10,6 +10,7 @@ import diffrax
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 import bijx.lie as lie
 
@@ -479,6 +480,29 @@ class TestODESolvers:
         np.testing.assert_allclose(prod, noise_transform(control))
 
 
+class TestArgValidation:
+    """Both integrators validate their extra arguments via ``valid_jaxtype``.
+
+    ``jax.core.valid_jaxtype`` moved to ``jax.extend.core`` in jax 0.10 and was
+    removed in 0.11; these pin the resulting error as the documented TypeError
+    rather than an AttributeError from the lookup itself.
+    """
+
+    def test_odeint_rk4_rejects_non_array_args(self):
+        def vector_field(t, y, scale):
+            return -scale * y
+
+        with pytest.raises(TypeError, match="must be arrays or scalars"):
+            odeint_rk4(vector_field, 1.0, 1.0, "not-an-array", step_size=0.1)
+
+    def test_crouch_grossmann_rejects_non_array_args(self):
+        def vector_field(t, y, args):
+            return -args * y
+
+        with pytest.raises(TypeError, match="must be arrays or scalars"):
+            crouch_grossmann(vector_field, 1.0, "not-an-array", 0.0, 1.0, 0.1)
+
+
 class TestIntegrationConsistency:
     """Integration tests checking consistency between different solvers."""
 
@@ -579,3 +603,78 @@ class TestNumericalStability:
         # Should conserve energy reasonably well
         np.testing.assert_allclose(energy_final, energy_initial, rtol=1e-2)
         np.testing.assert_allclose(energy_final, energy_initial, rtol=1e-2)
+
+
+class TestManifoldProjection:
+    """Regression tests for manifold-projection behaviour (see cg.py)."""
+
+    def _ref_project(self, x, special):
+        """Correct projection onto u(n) / su(n): anti-Herm, then remove trace."""
+        a = (x - jnp.conj(jnp.swapaxes(x, -1, -2))) / 2
+        if special:
+            n = x.shape[-1]
+            a = a - jnp.trace(a) / n * jnp.eye(n, dtype=a.dtype)
+        return a
+
+    def test_unitary_deriv_project_of_scalar_identity_is_zero(self):
+        # i*I lies along the identity, so its su(3) (traceless) part is exactly 0.
+        # The buggy projection (subtracting a bare scalar) leaves i*(I - J) != 0.
+        d = cg.UnitaryDeriv(special=True)
+        out = d.project(1j * jnp.eye(3))
+        np.testing.assert_allclose(out, jnp.zeros((3, 3)), atol=1e-10)
+
+    def test_unitary_deriv_project_matches_reference(self):
+        d = cg.UnitaryDeriv(special=True)
+        key = jax.random.PRNGKey(0)
+        k1, k2 = jax.random.split(key)
+        x = jax.random.normal(k1, (3, 3)) + 1j * jax.random.normal(k2, (3, 3))
+        out = d.project(x)
+        # anti-Hermitian and traceless
+        np.testing.assert_allclose(out, -jnp.conj(out.T), atol=1e-10)
+        assert abs(jnp.trace(out)) < 1e-10
+        # and equal to the correct orthogonal projection
+        np.testing.assert_allclose(out, self._ref_project(x, special=True), atol=1e-10)
+
+    def test_post_step_is_applied_by_stepper(self):
+        # A ManifoldType whose post_step zeros the state: if the stepper invokes
+        # post_step, the result must be zero; otherwise it stays at y0.
+        class ZeroingStep(cg.Euclidean):
+            def post_step(self, x):
+                return jnp.zeros_like(x)
+
+        y0 = jnp.array([1.0, 2.0])
+        out = crouch_grossmann(
+            lambda t, y, a: jnp.zeros_like(y),
+            y0,
+            (),
+            0.0,
+            1.0,
+            0.5,
+            manifold_types=ZeroingStep(),
+            tableau=CG2,
+        )
+        np.testing.assert_allclose(out, jnp.zeros(2), atol=1e-12)
+
+    def test_post_stage_is_applied_by_stepper(self):
+        # post_stage zeros each intermediate stage state; with CG2 the second
+        # stage vector is evaluated at a zeroed intermediate, so a state-dependent
+        # field yields a different (here: zero) result than without projection.
+        class ZeroingStage(cg.Euclidean):
+            def post_stage(self, x):
+                return jnp.zeros_like(x)
+
+        y0 = jnp.array([1.0, 2.0])
+        # field depends on state; if stages are zeroed the k2 contribution vanishes.
+        out = crouch_grossmann(
+            lambda t, y, a: y,
+            y0,
+            (),
+            0.0,
+            1.0,
+            0.5,
+            manifold_types=ZeroingStage(),
+            tableau=CG2,
+        )
+        # With post_stage wired, k1 is evaluated at zeroed y0 => 0, k2 at zeroed
+        # intermediate => 0, so the state never advances.
+        np.testing.assert_allclose(out, y0, atol=1e-12)

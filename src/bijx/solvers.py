@@ -20,6 +20,11 @@ from jax import core, custom_derivatives
 from jax.experimental.ode import api_util, ravel_first_arg
 from jax.flatten_util import ravel_pytree
 
+try:  # jax >= 0.10
+    from jax.extend.core import valid_jaxtype
+except ImportError:  # jax < 0.10
+    from jax.core import valid_jaxtype
+
 __all__ = [
     "DiffraxConfig",
     "odeint_rk4",
@@ -294,7 +299,7 @@ def odeint_rk4(fun, y0, end_time, *args, step_size, start_time=0):
         return fun(t, y, *args)
 
     for arg in jax.tree_util.tree_leaves(args):
-        if not isinstance(arg, core.Tracer) and not core.valid_jaxtype(arg):
+        if not isinstance(arg, core.Tracer) and not valid_jaxtype(arg):
             raise TypeError(
                 f"The contents of *args must be arrays or scalars, but got {arg}."
             )

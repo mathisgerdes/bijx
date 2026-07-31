@@ -27,6 +27,11 @@ from flax import nnx
 from jax import core, custom_derivatives
 from jax_autovmap import autovmap
 
+try:  # jax >= 0.10
+    from jax.extend.core import valid_jaxtype
+except ImportError:  # jax < 0.10
+    from jax.core import valid_jaxtype
+
 
 class ButcherTableau(nnx.Pytree):
     r"""Butcher tableau defining coefficients for Runge-Kutta integration schemes.
@@ -373,10 +378,12 @@ class UnitaryDeriv(ManifoldType):
 
     @autovmap(x=2)
     def project(self, x):
-        if self.special:
-            trace = jnp.linalg.trace(x)
-            x = x - trace / x.shape[-1]
+        # Anti-Hermitian part -> u(n).
         x = (x - x.mT.conj()) / 2
+        if self.special:
+            # Remove the trace along the identity -> traceless su(n).
+            n = x.shape[-1]
+            x = x - jnp.linalg.trace(x) / n * jnp.eye(n, dtype=x.dtype)
         return x
 
     def post_stage(self, x):
@@ -523,10 +530,16 @@ def crouch_grossmann_step(manifold_types, tableau, vector_field, step_size, t, y
         ti = t + step_size * tableau.c[i]
         # intermediate state
         intermediate = cg_stage(y0, vectors, manifold_types, ai, step_size)
+        # optional projection back onto the manifold after this stage
+        intermediate = jax.tree.map(
+            lambda s, mtype: mtype.post_stage(s), intermediate, manifold_types
+        )
         # evaluate vector field
         vectors[i] = vector_field(ti, intermediate)
 
-    return cg_stage(y0, vectors, manifold_types, tableau.b, step_size)
+    y1 = cg_stage(y0, vectors, manifold_types, tableau.b, step_size)
+    # optional projection back onto the manifold after the full step
+    return jax.tree.map(lambda s, mtype: mtype.post_step(s), y1, manifold_types)
 
 
 def crouch_grossmann(
@@ -585,7 +598,7 @@ def crouch_grossmann(
     args_types = Euclidean() if args_types is None else args_types
 
     for arg in jax.tree_util.tree_leaves(args):
-        if not isinstance(arg, core.Tracer) and not core.valid_jaxtype(arg):
+        if not isinstance(arg, core.Tracer) and not valid_jaxtype(arg):
             raise TypeError(
                 f"The contents of args must be arrays or scalars, but got {arg}."
             )

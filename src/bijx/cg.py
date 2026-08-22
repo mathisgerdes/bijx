@@ -378,6 +378,12 @@ class UnitaryDeriv(ManifoldType):
 
     @autovmap(x=2)
     def project(self, x):
+        if self.special and x.shape[-1] == 1:
+            raise ValueError(
+                "special=True means su(n), and su(1) = {0}: projecting a 1x1 "
+                "algebra element would return 0, annihilating all of u(1); "
+                "for U(1) pass special=False."
+            )
         # Anti-Hermitian part -> u(n).
         x = (x - x.mT.conj()) / 2
         if self.special:
@@ -410,6 +416,10 @@ class Unitary(Matrix):
         project_stage: Project back to unitary manifold after each internal stage.
         special: If True, work with SU(N) (special unitary, det=1).
         derivative: ManifoldType for tangent/cotangent spaces (default: UnitaryDeriv).
+
+    Note:
+        For U(1) (``N = 1``) set ``special=False`` and
+        ``derivative=UnitaryDeriv(special=False)`` if using projection.
     """
 
     def __init__(
@@ -439,6 +449,14 @@ class Unitary(Matrix):
 
     @autovmap(m=2)
     def project(self, m):
+        if self.special and m.shape[-1] == 1:
+            raise ValueError(
+                "special=True means SU(n), and SU(1) = {1}: projecting a 1x1 "
+                "unitary would map every phase to the identity. "
+                "For U(1) pass special=False "
+                "(and derivative=UnitaryDeriv(special=False), which defaults to True "
+                "independently)."
+            )
         # Polar decomposition via SVD: m = U S V^H
         u, _, vh = jnp.linalg.svd(m)
         # Construct unitary part of polar decomposition

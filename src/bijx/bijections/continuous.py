@@ -219,13 +219,12 @@ class ContFlowRK4(Bijection):
         steps = steps if steps is not None else self.steps
 
         delta_t = t_end - t_start
-        sgn = jnp.where(delta_t < 0, -1.0, 1.0)
 
         def vf(s, state, args):
             x, log_density = state
             t = t_start + s * delta_t
             dx_dt, dld_dt = jax.tree.map(
-                lambda x: sgn * x,
+                lambda x: delta_t * x,
                 self.vf(t, x, **args),
             )
             return dx_dt, dld_dt

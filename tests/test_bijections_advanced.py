@@ -33,7 +33,7 @@ from bijx import (
     ToFourierData,
     rational_quadratic_spline,
 )
-from bijx.fourier import fft_momenta
+from bijx.fourier import FourierMeta, fft_momenta, spectrum_asymmetry
 
 # Import test utilities
 from .utils import (
@@ -383,6 +383,307 @@ class TestFourierBijections:
         # Check inverse consistency
         np.testing.assert_allclose(x_back, x, atol=ATOL, rtol=RTOL)
         np.testing.assert_allclose(ld_back, log_density, atol=ATOL, rtol=RTOL)
+
+    # -- spectrum scaling with channel dimensions --------------------------
+    #
+    # The spectrum must be consistent on the conjugate pairs stored in the
+    # rFFT grid (see test_spectrum_scaling_pair_precondition below), otherwise
+    # the rFFT-space multiplication is not an invertible map on real fields.
+    # Any real function of ``fft_momenta`` satisfies that, since those momenta
+    # are folded into the first Brillouin zone.
+
+    @staticmethod
+    def _symmetric_spectrum(space_shape):
+        k = fft_momenta(space_shape, lattice=True)
+        return jnp.exp(-0.15 * jnp.sum(k**2, axis=-1)) + 0.3
+
+    @staticmethod
+    def _dense_log_det(bijection, x):
+        """log|det J| from the dense Jacobian of the flattened forward map."""
+
+        def flat_forward(flat):
+            y, _ = bijection.forward(flat.reshape(x.shape), jnp.zeros(()))
+            return y.ravel()
+
+        jac = jax.jacfwd(flat_forward)(x.ravel())
+        return jnp.linalg.slogdet(jac)[1]
+
+    @pytest.mark.parametrize("space_shape", [(8,), (4, 4)])
+    @pytest.mark.parametrize("channels", [None, 1, 3])
+    def test_spectrum_scaling_log_det_vs_jacobian(self, rng_key, space_shape, channels):
+        """Reported log-density change matches slogdet of the dense Jacobian.
+
+        ``channels=None`` is the channel-free regression case; the others use a
+        single spectrum shared by all channels.
+        """
+        spectrum = self._symmetric_spectrum(space_shape)
+        channel_dim = 0 if channels is None else 1
+        event_shape = space_shape if channels is None else space_shape + (channels,)
+
+        bijection = SpectrumScaling(spectrum, channel_dim=channel_dim)
+        x = jax.random.normal(rng_key, event_shape)
+
+        _, ld = bijection.forward(x, jnp.zeros(()))
+        np.testing.assert_allclose(
+            -ld,
+            self._dense_log_det(bijection, x),
+            atol=ATOL_RELAXED,
+            rtol=RTOL_RELAXED,
+        )
+        check_inverse(bijection, x)
+
+    @pytest.mark.parametrize("space_shape", [(8,), (4, 4)])
+    def test_spectrum_scaling_per_channel(self, rng_key, space_shape):
+        """Per-channel spectra: one independent scaling per channel."""
+        base = self._symmetric_spectrum(space_shape)
+        # deliberately different scaling per channel
+        spectrum = base[..., None] * jnp.array([0.4, 1.3, 2.7])
+
+        bijection = SpectrumScaling(spectrum, channel_dim=1, space_dim=len(space_shape))
+        x = jax.random.normal(rng_key, space_shape + (3,))
+
+        _, ld = bijection.forward(x, jnp.zeros(()))
+        np.testing.assert_allclose(
+            -ld,
+            self._dense_log_det(bijection, x),
+            atol=ATOL_RELAXED,
+            rtol=RTOL_RELAXED,
+        )
+        check_inverse(bijection, x)
+
+    def test_spectrum_scaling_shared_spectrum_counts_channels(self, rng_key):
+        """A shared spectrum contributes to log|det J| once *per channel*.
+
+        Do not "simplify" this away: a fix that only repairs the broadcasting
+        of the Fourier-space multiplication returns a log-det short by exactly
+        the factor ``channels``, which this test is built to catch. The
+        spectrum is chosen so that sum_k w_k log|s_k| is far from zero.
+        """
+        space_shape = (8,)
+        channels = 3
+        # scaled up so that sum_k w_k log|s_k| is comfortably away from zero
+        spectrum = 1.7 * self._symmetric_spectrum(space_shape)
+
+        x_single = jax.random.normal(rng_key, space_shape)
+        x_multi = jnp.broadcast_to(x_single[..., None], space_shape + (channels,))
+
+        single = SpectrumScaling(spectrum, channel_dim=0)
+        shared = SpectrumScaling(spectrum, channel_dim=1)
+
+        _, ld_single = single.forward(x_single, jnp.zeros(()))
+        _, ld_shared = shared.forward(x_multi, jnp.zeros(()))
+
+        # non-degenerate scaling: the missing factor would be visible
+        assert abs(float(ld_single)) > 1.0
+        np.testing.assert_allclose(
+            ld_shared, channels * ld_single, atol=ATOL, rtol=RTOL
+        )
+        # and the same value from an independent Jacobian computation
+        np.testing.assert_allclose(
+            -ld_shared,
+            self._dense_log_det(shared, x_multi),
+            atol=ATOL_RELAXED,
+            rtol=RTOL_RELAXED,
+        )
+
+    def test_spectrum_scaling_rejects_bad_rank(self):
+        """Scaling rank matching neither shared nor per-channel layout fails."""
+        spectrum = self._symmetric_spectrum((8,))
+        # rank 1 declared as 2 space dims: neither 2 nor 2 + 1
+        bijection = SpectrumScaling(spectrum, channel_dim=1, space_dim=2)
+        with pytest.raises(ValueError, match="matches neither"):
+            bijection.forward(jnp.ones((4, 4, 2)), jnp.zeros(()))
+
+    def test_free_theory_scaling_channels(self, rng_key):
+        """FreeTheoryScaling shares its spectrum across channels."""
+        space_shape = (4, 4)
+        bijection = FreeTheoryScaling(0.7, space_shape, channel_dim=1)
+        x = jax.random.normal(rng_key, space_shape + (2,))
+
+        _, ld = bijection.forward(x, jnp.zeros(()))
+        np.testing.assert_allclose(
+            -ld,
+            self._dense_log_det(bijection, x),
+            atol=ATOL_RELAXED,
+            rtol=RTOL_RELAXED,
+        )
+        check_inverse(bijection, x)
+
+    @pytest.mark.parametrize("space_shape", [(4, 4), (4, 4, 4)])
+    @pytest.mark.parametrize(
+        "case", ["pair_consistent", "perturb_paired", "perturb_unpaired"]
+    )
+    def test_spectrum_scaling_pair_precondition(self, rng_key, space_shape, case):
+        """Pins the *exact* precondition on the spectrum.
+
+        Only rFFT entries whose conjugate partner is also stored in the grid
+        (``FourierMeta.copy_from``/``copy_to``) are constrained. An otherwise
+        wildly k-asymmetric spectrum is perfectly fine, and perturbing an
+        unpaired entry stays exact; only a perturbation of a paired entry
+        breaks invertibility and the log-det. Do not "strengthen" this into
+        a requirement that the spectrum be symmetric under k -> -k: that would
+        reject legitimate spectra.
+        """
+        meta = FourierMeta.create(space_shape)
+        assert len(meta.copy_to) > 0, "shape must store conjugate pairs"
+        copy_to = tuple(meta.copy_to.T)
+        copy_from = tuple(meta.copy_from.T)
+
+        key_s, key_x = jax.random.split(rng_key)
+        # deliberately asymmetric in k, but consistent on the stored pairs
+        raw = jnp.exp(0.3 * jax.random.normal(key_s, meta.mr.shape))
+        spectrum = raw.at[copy_to].set(raw[copy_from])
+
+        if case == "perturb_paired":
+            spectrum = spectrum.at[tuple(i[:1] for i in copy_to)].multiply(1.5)
+        elif case == "perturb_unpaired":
+            paired = {tuple(i) for i in np.concatenate([meta.copy_to, meta.copy_from])}
+            idx = next(i for i in np.ndindex(meta.mr.shape) if i not in paired)
+            spectrum = spectrum.at[idx].multiply(1.5)
+
+        bijection = SpectrumScaling(spectrum)
+        x = jax.random.normal(key_x, space_shape)
+        _, ld = bijection.forward(x, jnp.zeros(()))
+        dense = self._dense_log_det(bijection, x)
+        asymmetry = spectrum_asymmetry(spectrum, space_shape)
+
+        if case == "perturb_paired":
+            assert float(asymmetry) > 0.1
+            # silent failure without the precondition: log-det and inverse
+            assert abs(float(-ld) - float(dense)) > 1e-3
+            with pytest.raises(AssertionError):
+                check_inverse(bijection, x)
+        else:
+            np.testing.assert_allclose(asymmetry, 0.0, atol=ATOL)
+            np.testing.assert_allclose(-ld, dense, atol=ATOL_RELAXED, rtol=RTOL_RELAXED)
+            check_inverse(bijection, x)
+
+    def test_spectrum_asymmetry_vacuous_in_1d(self, rng_key):
+        """No conjugate pairs are stored in one space dimension."""
+        space_shape = (8,)
+        spectrum = jnp.exp(0.3 * jax.random.normal(rng_key, (space_shape[0] // 2 + 1,)))
+        assert float(spectrum_asymmetry(spectrum, space_shape)) == 0.0
+        # ... while a hand-broken 2D pair does violate it. Momenta from
+        # ``fft_momenta`` never do, at either ``lattice`` setting, since they
+        # are folded into the first Brillouin zone.
+        k = fft_momenta((4, 4))
+        good = jnp.sum(k**2, axis=-1)
+        assert float(spectrum_asymmetry(good, (4, 4))) == 0.0
+        assert float(spectrum_asymmetry(good.at[1, 0].multiply(1.5), (4, 4))) > 0.1
+
+    @pytest.mark.parametrize("space_shape", [(8,), (4, 4), (6, 6, 6)])
+    def test_default_momenta_give_a_valid_spectrum(self, rng_key, space_shape):
+        """A spectrum built from plain ``fft_momenta`` is a valid bijection.
+
+        This is the regression for the momentum folding: with unfolded momenta
+        the spectrum differs across conjugate pairs in two or more space
+        dimensions, and both the log-density and invertibility break silently
+        (measured before the fix, on 4x4: log-det off by 2.25 nats, round trip
+        by 0.76).
+        """
+        k = fft_momenta(space_shape)
+        spectrum = jnp.exp(-0.1 * jnp.sum(k**2, axis=-1)) + 0.2
+        assert float(spectrum_asymmetry(spectrum, space_shape)) == 0.0
+
+        bijection = SpectrumScaling(spectrum, space_dim=len(space_shape))
+        x = jax.random.normal(rng_key, space_shape)
+        _, ld = bijection.forward(x, jnp.zeros(()))
+        np.testing.assert_allclose(
+            -ld,
+            self._dense_log_det(bijection, x),
+            atol=ATOL_RELAXED,
+            rtol=RTOL_RELAXED,
+        )
+        check_inverse(bijection, x)
+
+    def test_per_k_class_spectrum_is_valid(self, rng_key):
+        """A spectrum parametrised per |k| class is valid by construction.
+
+        This is the pattern a *learnable* isotropic spectrum needs: gradients
+        would otherwise drive conjugate partners apart. It works because
+        ``FourierMeta.ks_full`` folds its indices, so partners share a class.
+        """
+        space_shape = (8, 8)
+        meta = FourierMeta.create(space_shape)
+        mr = np.asarray(meta.mr)
+        cf, ct = np.asarray(meta.copy_from), np.asarray(meta.copy_to)
+
+        classes = np.zeros(mr.shape, dtype=int)
+        classes[mr] = np.asarray(meta.unique_unfold)
+        classes[tuple(ct.T)] = classes[tuple(cf.T)]
+        coefficients = np.exp(0.3 * np.sin(np.arange(classes.max() + 1)))
+        spectrum = jnp.asarray(coefficients[classes])
+
+        assert float(spectrum_asymmetry(spectrum, space_shape)) == 0.0
+        bijection = SpectrumScaling(spectrum, space_dim=2)
+        x = jax.random.normal(rng_key, space_shape)
+        _, ld = bijection.forward(x, jnp.zeros(()))
+        np.testing.assert_allclose(
+            -ld,
+            self._dense_log_det(bijection, x),
+            atol=ATOL_RELAXED,
+            rtol=RTOL_RELAXED,
+        )
+        check_inverse(bijection, x)
+
+    @pytest.mark.parametrize("space_shape", [(8,), (4, 4)])
+    def test_complex_spectrum_must_be_real_at_self_conjugate_modes(
+        self, rng_key, space_shape
+    ):
+        """The pair condition alone does not certify a *complex* spectrum.
+
+        Self-conjugate modes (``mr & ~mi``, e.g. k=0 and k=L/2) carry no
+        imaginary degree of freedom, so a phase there breaks invertibility and
+        the log-density even though every stored conjugate pair agrees. This
+        binds in one space dimension too, where no pair is stored at all --
+        which is why ``spectrum_asymmetry`` measures both conditions and why a
+        version of it that only compared the pairs would return 0.0 for a
+        spectrum that is not usable. Do not "simplify" it back.
+        """
+        meta = FourierMeta.create(space_shape)
+        mr, mi = np.asarray(meta.mr), np.asarray(meta.mi)
+        self_conj = mr & ~mi
+        copy_from, copy_to = np.asarray(meta.copy_from), np.asarray(meta.copy_to)
+
+        spectrum = np.asarray(
+            jnp.exp(0.2 * jax.random.normal(rng_key, mr.shape))
+        ).astype(complex)
+        spectrum *= np.exp(1j * 0.4)  # phase everywhere, including self-conjugate
+        if len(copy_to):  # make the pair condition hold exactly
+            spectrum[tuple(copy_to.T)] = np.conj(spectrum[tuple(copy_from.T)])
+
+        bad = jnp.asarray(spectrum)
+        assert float(spectrum_asymmetry(bad, space_shape)) > 0.1
+        with pytest.raises(AssertionError):
+            check_inverse(
+                SpectrumScaling(bad, space_dim=len(space_shape)),
+                jax.random.normal(rng_key, space_shape),
+            )
+
+        good = jnp.asarray(np.where(self_conj, np.abs(spectrum), spectrum))
+        assert float(spectrum_asymmetry(good, space_shape)) == 0.0
+        bij = SpectrumScaling(good, space_dim=len(space_shape))
+        x = jax.random.normal(rng_key, space_shape)
+        _, log_det = bij.forward(x, jnp.zeros(()))
+        np.testing.assert_allclose(
+            -log_det, self._dense_log_det(bij, x), atol=ATOL, rtol=RTOL
+        )
+        check_inverse(bij, x)
+
+    @pytest.mark.parametrize("m2", [0.7, nnx.Param(jnp.array(0.7))])
+    def test_free_theory_scaling_lazy_spectrum(self, rng_key, m2):
+        """Spectrum computed on the fly agrees with the precomputed one."""
+        space_shape = (4, 4)
+        x = jax.random.normal(rng_key, space_shape)
+
+        eager = FreeTheoryScaling(0.7, space_shape)
+        lazy = FreeTheoryScaling(m2, space_shape, precompute_spectrum=False)
+
+        y_eager, ld_eager = eager.forward(x, jnp.zeros(()))
+        y_lazy, ld_lazy = lazy.forward(x, jnp.zeros(()))
+
+        np.testing.assert_allclose(y_lazy, y_eager, atol=ATOL, rtol=RTOL)
+        np.testing.assert_allclose(ld_lazy, ld_eager, atol=ATOL, rtol=RTOL)
 
 
 class TestAdvancedCoupling:

@@ -34,6 +34,49 @@ class TestFftMomenta:
         assert k.shape == exp_shape
         assert is_valid_array(k)
 
+    @pytest.mark.parametrize("shape", [(4,), (5,), (4, 4), (6, 5)])
+    def test_momenta_folded_to_brillouin_zone(self, shape):
+        """Momenta run over (-pi, pi], with mode n and L-n related by k -> -k.
+
+        Folding is what makes ``|k|^2`` the momentum of a mode (mode ``L-1`` is
+        the slowest non-zero mode, not the fastest) and what makes any spectrum
+        built from these momenta satisfy ``SpectrumScaling``'s conjugate-pair
+        precondition. Unfolded momenta silently break both.
+        """
+        k = np.asarray(fft_momenta(shape, reduced=False))
+        assert (np.abs(k) <= np.pi + 1e-12).all()
+        for ax, n in enumerate(shape):
+            along = np.moveaxis(k[..., ax], ax, 0)
+            along = along.reshape(n, -1)[:, 0]
+            expected = (
+                2
+                * np.pi
+                * np.where(2 * np.arange(n) > n, np.arange(n) - n, np.arange(n))
+                / n
+            )
+            np.testing.assert_allclose(along, expected, atol=ATOL_RELAXED)
+            # n and L-n carry opposite momentum, up to the identification of
+            # the Nyquist mode's +pi and -pi (they are the same momentum)
+            partner = along[(-np.arange(n)) % n]
+            wrapped = np.mod(along + partner + np.pi, 2 * np.pi) - np.pi
+            np.testing.assert_allclose(wrapped, 0.0, atol=ATOL_RELAXED)
+
+    @pytest.mark.parametrize("shape", [(8,), (4, 4), (8, 8), (6, 6, 6)])
+    def test_ks_full_classes_respect_conjugate_pairs(self, shape):
+        """Conjugate partners share a |k|^2 class, so a per-class spectrum is valid.
+
+        ``ks_full`` folds its indices for exactly this reason: a spectrum
+        parametrised through ``unique_unfold`` must give ``copy_from`` and
+        ``copy_to`` the same value, or ``SpectrumScaling`` stops being a
+        bijection once those parameters differ.
+        """
+        meta = FourierMeta.create(shape)
+        ks = np.asarray(meta.ks_full)
+        cf, ct = np.asarray(meta.copy_from), np.asarray(meta.copy_to)
+        if len(ct) == 0:
+            pytest.skip("no conjugate pairs stored in one space dimension")
+        np.testing.assert_array_equal(ks[tuple(cf.T)], ks[tuple(ct.T)])
+
     def test_unit_indices(self):
         shape = (4, 6)
         k_idx = fft_momenta(shape, reduced=True, unit=True)
@@ -46,7 +89,6 @@ class TestFftMomenta:
 
 
 class TestFourierMeta:
-
     @given(real_space_shapes())
     def test_dof_conservation(self, real_shape):
         meta = FourierMeta.create(real_shape)

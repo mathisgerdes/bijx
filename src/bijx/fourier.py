@@ -19,6 +19,7 @@ from .utils import ShapeInfo
 __all__ = [
     # Core Fourier utilities
     "fft_momenta",
+    "spectrum_asymmetry",
     "FourierMeta",
     "FFTRep",
     "FourierData",
@@ -31,22 +32,34 @@ def fft_momenta(
     lattice: bool = False,
     unit: bool = False,
 ) -> jax.Array:
-    """Generate momentum grid for Fourier transforms.
+    r"""Generate momentum grid for Fourier transforms.
 
     Creates momentum coordinate arrays suitable for physics applications,
     supporting both continuum and lattice formulations. Handles the reduced
     form appropriate for real FFTs with Hermitian symmetry.
 
+    Momenta are **folded into the first Brillouin zone**: mode $n$ of an axis of
+    length $L$ carries momentum $2\pi n/L$ for $n \le L/2$ and $2\pi (n - L)/L$
+    above that, so momenta run over $(-\pi, \pi]$ and modes $n$ and $L - n$ are
+    related by $k \to -k$. Folding is what makes $|k|^2$ the momentum of that
+    mode (mode $L-1$ is the *slowest* non-zero mode, not the fastest).
+    With ``reduced=True`` the last axis only runs to $L/2$ and is unaffected;
+    folding matters on every other axis, i.e. in two or more space dimensions.
+
     Args:
         shape: Spatial grid dimensions.
         reduced: If True, use reduced form for real FFT (Hermitian symmetry).
         lattice: If True, use lattice momenta; otherwise continuum momenta.
-        unit: If True, return integer indices instead of momentum values.
+        unit: If True, return raw non-negative integer *indices* into the FFT
+            grid instead of momenta. These are array indices, not momenta, and
+            are deliberately **not** folded; for integer-valued momenta use
+            ``fft_momenta(shape, unit=True)`` folded by the caller, or
+            :attr:`FourierMeta.ks_full`, which does exactly that.
 
     Returns:
         Momentum grid array with shape ``(*spatial_shape, spatial_rank)``.
-        For continuum: momenta in units of 2π/L.
-        For lattice: momenta appropriate for lattice derivatives.
+        For continuum: momenta in units of 2π/L, folded to $(-\pi, \pi]$.
+        For lattice: $2\sin(k/2)$ of those momenta, odd in $k$.
 
     Example:
         >>> # Continuum momenta for 2D lattice
@@ -65,6 +78,9 @@ def fft_momenta(
     ks = np.mgrid[tuple(np.s_[:s] for s in shape)]
     if unit:
         return np.moveaxis(ks, 0, -1)
+    # fold into the first Brillouin zone: n > L/2 carries momentum 2 pi (n-L)/L.
+    # Strict inequality keeps the Nyquist mode n = L/2 at +pi.
+    ks = np.where(2 * ks > shape_factor, ks - shape_factor, ks)
     ks = 2 * jnp.pi * ks / shape_factor
     if lattice:
         # with this true, (finite) lattice spectrum ~ 1 / m^2 + k^2
@@ -76,7 +92,7 @@ def fft_momenta(
 
 @nnx.dataclass
 class FourierMeta(nnx.Pytree):
-    """Metadata for handling real FFT constraints and symmetries.
+    r"""Metadata for handling real FFT constraints and symmetries.
 
     Encapsulates all the bookkeeping needed to work with real-valued Fourier
     transforms, including Hermitian symmetry constraints, multiplicities for
@@ -99,6 +115,14 @@ class FourierMeta(nnx.Pytree):
     Note:
         This class is created automatically by :func:`FourierMeta.create()` and
         should usually not be instantiated directly.
+
+    Note:
+        ``ks_full`` is $|k|^2$ in units of $(2\pi/L)^2$, from indices folded into
+        the first Brillouin zone, so conjugate partners (``copy_from``/
+        ``copy_to``) always share a $|k|^2$ class. A spectrum parametrised per
+        class through ``unique_idc``/``unique_unfold`` therefore satisfies the
+        conjugate-pair precondition of :class:`~bijx.SpectrumScaling` by
+        construction, learnable or not.
     """
 
     shape_info: ShapeInfo
@@ -158,7 +182,11 @@ class FourierMeta(nnx.Pytree):
             FourierMeta instance with all symmetry constraints computed.
         """
         mr, mi, copy_from, copy_to = cls._get_fourier_info(real_shape)
-        ks_full = np.sum(fft_momenta(real_shape, unit=True) ** 2, axis=-1).astype(int)
+        # |k|^2 in units of (2 pi / L)^2, from indices folded into the first
+        # Brillouin zone
+        idx = np.asarray(fft_momenta(real_shape, unit=True))
+        lengths = np.asarray(real_shape)
+        ks_full = np.sum(np.minimum(idx, lengths - idx) ** 2, axis=-1).astype(int)
         ks_reduced = ks_full[mr]
 
         # unique_idc -> assign to "k index" (could be used to add correlations)
@@ -210,6 +238,80 @@ class FourierMeta(nnx.Pytree):
         dtype = real_data.dtype
         out = jax.eval_shape(jnp.fft.rfft, jax.ShapeDtypeStruct((10,), dtype))
         return out.dtype
+
+
+def spectrum_asymmetry(scaling, real_shape, channel_dim=0):
+    r"""Tool: measure violation of the conjugate-pair precondition of a spectrum.
+
+    A diagonal scaling in rFFT space defines an invertible map on real fields
+    (with log-Jacobian $\sum_k w_k \log|s_k|$) only if two conditions hold:
+
+    1. Entries whose conjugate partner is also stored in the rFFT grid are
+       consistent, $s[\text{copy\_to}] == s[\text{copy\_from}]^*$.
+    2. The spectrum is **real at self-conjugate modes** (``mr & ~mi``), where
+       the field itself carries no imaginary degree of freedom.
+
+    All other entries are unconstrained. See also :class:`~bijx.SpectrumScaling`.
+
+    This is not checked inside the bijection (it cannot raise under ``jit``);
+    call this function to assert the precondition in tests / debugging.
+
+    Args:
+        scaling: Spectrum with leading axes matching the rFFT shape of
+            ``real_shape``, optionally followed by channel axes.
+        real_shape: Shape of the real-space (spatial) data.
+        channel_dim: Number of channel dimensions of ``scaling``.
+
+    Returns:
+        Maximum absolute violation of either condition; the larger of
+        $\max |s[\text{copy\_to}] - s[\text{copy\_from}]^*|$ and
+        $\max |\operatorname{Im} s|$ over the self-conjugate modes.
+
+    Any spectrum built from :func:`fft_momenta` satisfies both conditions, since
+    those momenta are folded and real; this function is for hand-built or
+    externally supplied spectra.
+
+    Example:
+        >>> k = fft_momenta((6, 6))
+        >>> spectrum = jnp.exp(-0.1 * jnp.sum(k**2, axis=-1))
+        >>> assert spectrum_asymmetry(spectrum, (6, 6)) < 1e-12
+        >>> asymmetric = spectrum.at[1, 0].multiply(1.8)  # breaks one pair
+        >>> assert spectrum_asymmetry(asymmetric, (6, 6)) > 0
+    """
+    scaling = jnp.asarray(scaling)
+    meta = FourierMeta.create(real_shape, channel_dim)
+    space_dim = len(real_shape)
+
+    if scaling.ndim not in (space_dim, space_dim + channel_dim):
+        raise ValueError(
+            f"scaling rank {scaling.ndim} matches neither space_dim={space_dim} "
+            f"nor space_dim + channel_dim={space_dim + channel_dim}"
+        )
+    if scaling.shape[:space_dim] != meta.mr.shape:
+        raise ValueError(
+            f"leading axes of scaling {scaling.shape[:space_dim]} do not match "
+            f"the rFFT shape {meta.mr.shape} of {tuple(real_shape)}"
+        )
+
+    abs_dtype = jnp.abs(jnp.zeros((), dtype=scaling.dtype)).dtype
+
+    # condition 2. Non-trivial even in 1D
+    self_conj = np.asarray(meta.mr) & ~np.asarray(meta.mi)
+    if self_conj.any():
+        imag = jnp.max(jnp.abs(jnp.imag(scaling[self_conj])))
+    else:
+        imag = jnp.zeros((), dtype=abs_dtype)
+
+    # condition 1
+    if len(meta.copy_to) == 0:
+        return jnp.asarray(imag, dtype=abs_dtype)
+
+    to = scaling[tuple(meta.copy_to.T)]
+    frm = scaling[tuple(meta.copy_from.T)]
+    pair = jnp.max(jnp.abs(to - jnp.conj(frm)))
+    return jnp.maximum(
+        jnp.asarray(pair, dtype=abs_dtype), jnp.asarray(imag, dtype=abs_dtype)
+    )
 
 
 class FFTRep(IntEnum):

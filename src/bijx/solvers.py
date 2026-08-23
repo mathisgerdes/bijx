@@ -17,7 +17,6 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 from jax import core, custom_derivatives
-from jax.experimental.ode import api_util, ravel_first_arg
 from jax.flatten_util import ravel_pytree
 
 try:  # jax >= 0.10
@@ -263,6 +262,19 @@ class DiffraxConfig(nnx.Pytree):
 # limitations under the License.
 
 
+def _ravel_first_arg(f, unravel):
+    """Flatten the first argument (and output) of ``f``.
+
+    Inlined from :mod:`jax.experimental.ode`, which does not export it as
+    public API and changed its signature across jax versions.
+    """
+
+    def raveled(y_flat, *args):
+        return ravel_pytree(f(unravel(y_flat), *args))[0]
+
+    return raveled
+
+
 def odeint_rk4(fun, y0, end_time, *args, step_size, start_time=0):
     """Fixed step-size Runge-Kutta implementation with custom adjoint.
 
@@ -312,7 +324,7 @@ def odeint_rk4(fun, y0, end_time, *args, step_size, start_time=0):
 @partial(jax.jit, static_argnums=(0, 1))
 def _odeint_grid_wrapper(fun, step_size, y0, ts, *args):
     y0, unravel = ravel_pytree(y0)
-    fun = ravel_first_arg(fun, unravel, api_util.debug_info("odeint", fun, args, {}))
+    fun = _ravel_first_arg(fun, unravel)
     out = _rk4_odeint(fun, step_size, y0, ts, *args)
     return unravel(out)
 
